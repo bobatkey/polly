@@ -92,7 +92,7 @@ type store =
 
 let log_with_time fmt =
   let time = Ptime_clock.now () in
-  Lwt_io.printf ("%s: " ^^ fmt) (Ptime.to_rfc3339 ~frac_s:5 time)
+  Lwt_io.eprintf ("%s: " ^^ fmt) (Ptime.to_rfc3339 ~frac_s:5 time)
 
 let rec eval_name (table : store) nm =
   match Hashtbl.find table nm with
