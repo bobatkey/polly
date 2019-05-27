@@ -348,7 +348,7 @@ and eval table = function
           in
           try_loop exprs
        | _ ->
-          Lwt.fail_with "syntax error: first-sucessful")
+          Lwt.fail_with "syntax error: first-successful")
 
   | E_cons { constructor=Parse_json; arguments } ->
      (match arguments with
