@@ -1,0 +1,27 @@
+opam-version: "2.0"
+name: "polly"
+version: "0.1"
+synopsis: "A simple language for services"
+description: """
+Longer description
+"""
+maintainer: "Robert Atkey <robert.atkey@strath.ac.uk>"
+authors: "Robert Atkey <robert.atkey@strath.ac.uk>"
+license: ""
+homepage: ""
+bug-reports: ""
+dev-repo: ""
+depends: [
+  "ocaml"
+  "ocamlfind"
+  "dune" {build}
+  "menhir" {build}
+  "ssl"
+  "lwt"
+  "lwt_ssl"
+  "cohttp"
+  "cohttp-lwt-unix"
+  "ptime"
+  "yojson"
+]
+build: ["dune" "build" "-p" name]

@@ -10,10 +10,15 @@ To build:
 
          opam switch create . 4.07.1
 
- 4. Install dependencies:
+ 4. Set up paths:
+ 
+          eval $(opam env)
 
-         opam install dune ssl lwt lwt_ssl cohttp cohttp-lwt-unix ptime yojson menhir
+ 4. Install the package:
 
- 5. Build it and run it:
+         opam install .
 
-         dune exec -- src/main.exe test.polly id1=3 id2=5
+ 5. Run it:
+
+         polly test.polly id1=4 id2=67
+
