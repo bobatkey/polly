@@ -14,7 +14,7 @@ let read_file filename =
 let exec_and_print arguments program =
   Lwt.bind (Evaluator.eval arguments program)
     (function
-      | Ok (Evaluator.Value.Type.Json json) ->
+      | Ok (Evaluator.Value.Json json) ->
          let str = Yojson.Basic.to_string json in
          Lwt_fmt.printf "%s@." str
       | Ok v ->

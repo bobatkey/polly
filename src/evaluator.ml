@@ -27,7 +27,7 @@ module Decision = struct
     type decision = Permit | Deny | Not_applicable
   end
 
-  open Type
+  include Type
 
   type t = decision
 
@@ -48,7 +48,7 @@ module Value = struct
       | JsonField of string * Yojson.Basic.t
   end
 
-  open Type
+  include Type
 
   type t = value
 
