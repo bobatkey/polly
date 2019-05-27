@@ -1,0 +1,9 @@
+(executable
+ (name       main)
+ (libraries  lwt cohttp-lwt-unix cohttp cohttp-lwt yojson ptime ptime.clock.os))
+
+(menhir
+ ; (flags   --table --unused-token UNKNOWN)
+ (modules parser))
+
+(ocamllex lexer)
