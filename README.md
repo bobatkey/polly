@@ -12,7 +12,7 @@ To build:
 
  4. Install dependencies:
 
-         opam install dune lwt cohttp ptime yojson
+         opam install dune ssl lwt lwt_ssl cohttp cohttp-lwt-unix ptime yojson menhir
 
  5. Build it and run it:
 
