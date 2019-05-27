@@ -14,10 +14,14 @@ let read_file filename =
 let exec_and_print arguments program =
   Lwt.bind (Evaluator.eval arguments program)
     (function
-      | Ok value ->
-         Lwt_fmt.printf "Ok (%a)@." Evaluator.Value.pp value
+      | Ok (Evaluator.Value.Type.Json json) ->
+         let str = Yojson.Basic.to_string json in
+         Lwt_fmt.printf "%s@." str
+      | Ok v ->
+         Lwt_fmt.eprintf "Error: unexpected value returned: (@[%a@])@."
+           Evaluator.Value.pp v
       | Error msg ->
-         Lwt_fmt.printf "Error %S@." msg)
+         Lwt_fmt.eprintf "Error %S@." msg)
 
 let () =
   let filename, arguments =
@@ -28,7 +32,7 @@ let () =
          failwith "bad args"
   in
   let ast = read_file filename in
-  match Polly.Checker.check_program ast with
+  match Polly.Checker.check_program ast Polly.Json with
     | Error msg ->
        prerr_endline msg;
        exit 1

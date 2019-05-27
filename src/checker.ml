@@ -71,7 +71,7 @@ module type CHECKER = sig
     ; required : (string, L.sort) Hashtbl.t
     }
 
-  val check_program : Ast.program -> (program, string) result
+  val check_program : Ast.program -> L.sort -> (program, string) result
 end
 
 (* A plan for strictness / laziness and control flow
@@ -244,7 +244,7 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
          check_against env expr sort >>= fun expr ->
          check_list env (expr::checked) exprs sort
 
-  let check_program program =
+  let check_program program main_sort =
     let defined  = Hashtbl.create 20 in
     let required = Hashtbl.create 20 in
     let env      = Hashtbl.create 20 in
@@ -267,5 +267,11 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
              Ok ()
     in
     R.iter check_decl program >>= fun () ->
-    Ok { defined; required }
+    match Hashtbl.find env "main" with
+      | exception Not_found ->
+         Error "no 'main' defined"
+      | sort when not (L.Sort.equal sort main_sort) ->
+         Error "main has wrong sort"
+      | _ ->
+         Ok { defined; required }
 end
