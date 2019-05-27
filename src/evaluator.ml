@@ -66,22 +66,111 @@ end
 
 open Value.Type
 open Decision.Type
-
-
-let concat xs =
-  let buf = Buffer.create 12 in
-  let rec loop = function
-    | [] ->
-       Ok (String (Buffer.contents buf))
-    | String s::vs ->
-       Buffer.add_string buf s;
-       loop vs
-    | _::_ ->
-       Error "type error"
-  in
-  loop xs
-
 open Polly.Checker
+
+type (_,_) conv =
+  | Ret  : ('a -> value) -> ('a, value) conv
+  | RetE : ('a -> value) -> (('a,string) result, (value,string) result) conv
+  | ArgS : (value -> 'a option) * ('b,'c) conv -> ('a -> 'b, value -> 'c) conv
+  | ArgL : (value -> 'a option) * ('b,'c) conv -> ('a list -> 'b, value list -> 'c) conv
+
+type 'a ep =
+  { embed   : 'a -> value
+  ; project : value -> 'a option
+  }
+
+let string =
+  { embed   = (fun s -> String s)
+  ; project = (function
+               | String s -> Some s
+               | _        -> None)
+  }
+
+let integer =
+  { embed   = (fun s -> Integer s)
+  ; project = (function
+               | Integer i -> Some i
+               | _         -> None)
+  }
+
+let json =
+  { embed   = (fun j -> Json j)
+  ; project = (function
+               | Json j -> Some j
+               | _      -> None)
+  }
+
+let decision =
+  { embed   = (fun d -> Decision d)
+  ; project = (function
+               | Decision d -> Some d
+               | _          -> None)
+  }
+
+let ret ep = Ret ep.embed
+let ret_e ep = RetE ep.embed
+let (@->) ep c = ArgS (ep.project, c)
+let (@*->) ep c = ArgL (ep.project, c)
+
+let rec traverse f = function
+  | [] -> Some []
+  | x::xs ->
+     (match f x with
+      | None -> None
+      | Some y ->
+         match traverse f xs with
+         | None -> None
+         | Some ys -> Some (y::ys))
+
+let rec conv : type a b. (a,b) conv -> a -> b =
+  function
+  | Ret e ->
+     e
+  | RetE e ->
+     (function
+      | Ok x -> Ok (e x)
+      | Error _ as e -> e)
+  | ArgS (p, c) ->
+     (fun f v -> match p v with
+                 | None -> failwith "type error"
+                 | Some a -> conv c (f a))
+  | ArgL (p, c) ->
+     (fun f vs -> match traverse p vs with
+                  | None -> failwith "type error"
+                  | Some xs -> conv c (f xs))
+
+
+let concat =
+  conv (string @*-> ret string)
+    (String.concat "")
+
+let permit = conv (ret decision) Permit
+let deny   = conv (ret decision) Deny
+let get_field =
+  conv (json @-> string @-> ret_e json)
+    (fun json fnm ->
+      match json with
+      | `Assoc assocs ->
+         (match List.assoc fnm assocs with
+          | exception Not_found -> Error "field not found"
+          | value               -> Ok value)
+      | _ ->
+         Error "not a JSON object")
+let get_string =
+  conv (json @-> ret_e string)
+    (function `String s -> Ok s
+            | _         -> Error "json: not a string")
+let get_integer =
+  conv (json @-> ret_e integer)
+    (function `Int i -> Ok i
+            | _      -> Error "json: not an integer")
+let json_string =
+  conv (string @-> ret json)
+    (fun s -> `String s)
+let json_number =
+  conv (integer @-> ret json)
+    (fun i -> `Int i)
+
 
 type state =
   | Evaled   of (Value.t, string) Lwt_result.t
@@ -166,50 +255,36 @@ and eval table = function
   | E_cons { constructor=Concat; arguments } ->
      (match arguments with
        | [A_list exprs] ->
-          Lwt_result.bind_result
-            (Lwt_result.map_p (eval table) exprs)
+          Lwt_result.map
             concat
+            (Lwt_result.map_p (eval table) exprs)
        | _ ->
           Lwt.fail_with "syntax error: concat")
 
   | E_cons { constructor=GetField; arguments } ->
      (match arguments with
        | [A_single e_json; A_single e_name] ->
-          Lwt_result.bind
+          Lwt_result.bind_result
             (Lwt_result.both (eval table e_json) (eval table e_name))
-            (function
-              | Json (`Assoc assocs), String fname ->
-                 (match List.assoc fname assocs with
-                   | exception _ -> Lwt.return (Error "not found")
-                   | value       -> Lwt_result.return (Json value))
-              | Json _, String _ ->
-                 Lwt_result.fail "get-field: not a json object"
-              | _ ->
-                 Lwt.fail_with "type error")
+            (fun (v1, v2) -> get_field v1 v2)
        | _ ->
           Lwt.fail_with "syntax error: get-field")
 
   | E_cons { constructor=GetString; arguments } ->
      (match arguments with
        | [A_single e_json] ->
-          Lwt_result.bind
+          Lwt_result.bind_result
             (eval table e_json)
-            (function
-              | Json (`String s) -> Lwt_result.return (String s)
-              | Json _           -> Lwt_result.fail "json: not a string"
-              | _                -> Lwt.fail_with "type error")
+            get_string
        | _ ->
           Lwt.fail_with "syntax error: string")
 
   | E_cons { constructor=GetInteger; arguments } ->
      (match arguments with
        | [A_single e_json] ->
-          Lwt_result.bind
+          Lwt_result.bind_result
             (eval table e_json)
-            (function
-              | Json (`Int i) -> Lwt_result.return (Integer i)
-              | Json _        -> Lwt_result.fail "json: not an integer"
-              | _             -> Lwt.fail_with "type error")
+            get_integer
        | _ ->
           Lwt.fail_with "syntax error: integer")
 
@@ -247,24 +322,14 @@ and eval table = function
   | E_cons { constructor=JsonString; arguments } ->
      (match arguments with
        | [A_single e_str] ->
-          Lwt_result.bind (eval table e_str)
-            (function
-              | String str ->
-                 Lwt_result.return (Json (`String str))
-              | _ ->
-                 Lwt_result.fail "type error")
+          Lwt_result.(>|=) (eval table e_str) json_string
        | _ ->
           Lwt.fail_with "syntax error: json-string")
 
   | E_cons { constructor=JsonNumber; arguments } ->
      (match arguments with
        | [A_single e_str] ->
-          Lwt_result.bind (eval table e_str)
-            (function
-              | Integer i ->
-                 Lwt_result.return (Json (`Int i))
-              | _ ->
-                 Lwt_result.fail "type error")
+          Lwt_result.(>|=) (eval table e_str) json_number
        | _ ->
           Lwt.fail_with "syntax error: json-number")
 
