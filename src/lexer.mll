@@ -12,7 +12,7 @@ let digit    = ['0'-'9']
 rule token = parse
 | white               { token lexbuf }
 | '\n'                { Lexing.new_line lexbuf; token lexbuf }
-| '/''/'              { comment lexbuf }
+| "//"                { comment lexbuf }
 | "("                 { LPAREN }
 | ")"                 { RPAREN }
 | "{"                 { LBRACE }
@@ -24,7 +24,7 @@ rule token = parse
 | "as"                { KW_AS }
 | lc_ident            { LC_IDENT (Lexing.lexeme lexbuf) }
 | uc_ident            { UC_IDENT (Lexing.lexeme lexbuf) }
-| '\"'                { let b = Buffer.create 10 in stringlit b lexbuf }
+| "\""                { let b = Buffer.create 10 in stringlit b lexbuf }
 | ('-'|'+'|"")digit+  { INTLIT (int_of_string (Lexing.lexeme lexbuf)) }
 | eof                 { EOF }
 

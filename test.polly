@@ -2,6 +2,7 @@ external id1 : string
 external id2 : string
 
 
+// The base uri for the external service
 define base-uri : string as
   "https://jsonplaceholder.typicode.com/todos/"
 
