@@ -93,50 +93,50 @@ module Language = struct
   let sort_of_constructor constructor =
     let open Checker.Sorts in
     match constructor with
-      | Permit ->
-         return (B Decision)
-      | Deny ->
-         return (B Decision)
-      | Guard ->
-         B Boolean @--> B Decision @--> return (B Decision)
-      | FirstApplicable ->
-         B Decision @*-> return (B Decision)
-      | Concat ->
-         B String @*-> return (B String)
-      | GetField ->
-         B Json @--> B String @--> return (B Json)
-      | GetString ->
-         B Json @--> return (B String)
-      | GetInteger ->
-         B Json @--> return (B Integer)
+    | Permit ->
+      return (B Decision)
+    | Deny ->
+      return (B Decision)
+    | Guard ->
+      B Boolean @--> B Decision @--> return (B Decision)
+    | FirstApplicable ->
+      B Decision @*-> return (B Decision)
+    | Concat ->
+      B String @*-> return (B String)
+    | GetField ->
+      B Json @--> B String @--> return (B Json)
+    | GetString ->
+      B Json @--> return (B String)
+    | GetInteger ->
+      B Json @--> return (B Integer)
 
-      | JsonObject ->
-         B JsonField @*-> return (B Json)
-      | JsonField ->
-         B String @--> B Json @--> return (B JsonField)
-      | JsonString ->
-         B String @--> return (B Json)
-      | JsonNumber ->
-         B Integer @--> return (B Json)
+    | JsonObject ->
+      B JsonField @*-> return (B Json)
+    | JsonField ->
+      B String @--> B Json @--> return (B JsonField)
+    | JsonString ->
+      B String @--> return (B Json)
+    | JsonNumber ->
+      B Integer @--> return (B Json)
 
-      | Is_equal_String ->
-         B String @--> B String @--> return (B Boolean)
-      | Is_equal_Integer ->
-         B Integer @--> B Integer @--> return (B Boolean)
+    | Is_equal_String ->
+      B String @--> B String @--> return (B Boolean)
+    | Is_equal_Integer ->
+      B Integer @--> B Integer @--> return (B Boolean)
 
-      | If ->
-         B Boolean @--> V "a" @--> V "a" @--> return (V "a")
-      | Try ->
-         V "a" @--> V "a" @--> return (V "a")
-      | Error ->
-         B String @--> return (V "a")
-      | First_successful ->
-         V "a" @*-> return (V "a")
+    | If ->
+      B Boolean @--> V "a" @--> V "a" @--> return (V "a")
+    | Try ->
+      V "a" @--> V "a" @--> return (V "a")
+    | Error ->
+      B String @--> return (V "a")
+    | First_successful ->
+      V "a" @*-> return (V "a")
 
-      | Parse_json ->
-         B String @--> return (B Json)
-      | Http_get ->
-         B String @--> return (B String)
+    | Parse_json ->
+      B String @--> return (B Json)
+    | Http_get ->
+      B String @--> return (B String)
 end
 
 module Checker = Checker.Make (Language)

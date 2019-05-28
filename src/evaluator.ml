@@ -116,11 +116,11 @@ let rec traverse f = function
   | [] -> Some []
   | x::xs ->
      (match f x with
-      | None -> None
-      | Some y ->
-         match traverse f xs with
-         | None -> None
-         | Some ys -> Some (y::ys))
+       | None -> None
+       | Some y ->
+          match traverse f xs with
+            | None -> None
+            | Some ys -> Some (y::ys))
 
 let rec conv : type a b. (a,b) conv -> a -> b =
   function
@@ -185,276 +185,277 @@ let log_with_time fmt =
 
 let rec eval_name (table : store) nm =
   match Hashtbl.find table nm with
-    | exception Not_found ->
-       Lwt.fail_with (Printf.sprintf "definition not found: %s" nm)
-    | Evaled t ->
-       t
-    | Unevaled expr ->
-       let open Lwt.Infix in
-       log_with_time "Starting %s\n%!" nm >>= fun () ->
-       let task = eval table expr in
-       Hashtbl.replace table nm (Evaled task);
-       task >>= fun value ->
-       log_with_time "Finishing %s\n%!" nm >|= fun () ->
-       value
+  | exception Not_found ->
+    Lwt.fail_with (Printf.sprintf "definition not found: %s" nm)
+  | Evaled t ->
+    t
+  | Unevaled expr ->
+    let open Lwt.Infix in
+    log_with_time "Starting %s\n%!" nm >>= fun () ->
+    let task = eval table expr in
+    Hashtbl.replace table nm (Evaled task);
+    task >>= fun value ->
+    log_with_time "Finishing %s\n%!" nm >|= fun () ->
+    value
 
 and eval table = function
   | E_name nm ->
-     eval_name table nm
+    eval_name table nm
 
   | E_string s ->
-     Lwt_result.return (String s)
+    Lwt_result.return (String s)
 
   | E_int i ->
-     Lwt_result.return (Integer i)
+    Lwt_result.return (Integer i)
 
   | E_cons { constructor=Permit; arguments } ->
-     (match arguments with
-       | [] -> Lwt_result.return (Decision Permit)
-       | _  -> Lwt.fail_with "syntax error: PERMIT")
+    (match arguments with
+     | [] -> Lwt_result.return (Decision Permit)
+     | _  -> Lwt.fail_with "syntax error: PERMIT")
 
   | E_cons { constructor=Deny; arguments } ->
-     (match arguments with
-       | [] -> Lwt_result.return (Decision Deny)
-       | _  -> Lwt.fail_with "syntax error: DENY")
+    (match arguments with
+     | [] -> Lwt_result.return (Decision Deny)
+     | _  -> Lwt.fail_with "syntax error: DENY")
 
   | E_cons { constructor=Guard; arguments } ->
-     (match arguments with
-       | [A_single c; A_single d] ->
-          Lwt_result.bind
-            (eval table c)
-            (function
-              | Boolean true  -> eval table d
-              | Boolean false -> Lwt_result.return (Decision Not_applicable)
-              | _             -> Lwt.fail_with "type error")
-       | _ ->
-          Lwt.fail_with "syntax error: guard")
+    (match arguments with
+     | [A_single c; A_single d] ->
+       Lwt_result.bind
+         (eval table c)
+         (function
+           | Boolean true  -> eval table d
+           | Boolean false -> Lwt_result.return (Decision Not_applicable)
+           | _             -> Lwt.fail_with "type error")
+     | _ ->
+       Lwt.fail_with "syntax error: guard")
 
   | E_cons { constructor=FirstApplicable; arguments} ->
-     (match arguments with
-       | [A_list exprs] ->
-          let rec get_first = function
-            | [] ->
-               Lwt_result.return (Decision Not_applicable)
-            | e::es ->
-               Lwt_result.bind
-                 (eval table e)
-                 (function
-                   | Decision (Permit | Deny) as r ->
-                      Lwt_result.return r
-                   | Decision Not_applicable ->
-                      get_first es
-                   (* FIXME: handle errors specially? *)
-                   | _ ->
-                      Lwt.fail_with "type error")
-          in
-          get_first exprs
-       | _ ->
-          Lwt.fail_with "syntax error: first-applicable")
+    (match arguments with
+     | [A_list exprs] ->
+       let rec get_first = function
+         | [] ->
+           Lwt_result.return (Decision Not_applicable)
+         | e::es ->
+           Lwt_result.bind
+             (eval table e)
+             (function
+               | Decision (Permit | Deny) as r ->
+                 Lwt_result.return r
+               | Decision Not_applicable ->
+                 get_first es
+               (* FIXME: handle errors specially? *)
+               | _ ->
+                 Lwt.fail_with "type error")
+       in
+       get_first exprs
+     | _ ->
+       Lwt.fail_with "syntax error: first-applicable")
 
   | E_cons { constructor=Concat; arguments } ->
-     (match arguments with
-       | [A_list exprs] ->
-          Lwt_result.map
-            concat
-            (Lwt_result.map_p (eval table) exprs)
-       | _ ->
-          Lwt.fail_with "syntax error: concat")
+    (match arguments with
+     | [A_list exprs] ->
+       Lwt_result.map
+         concat
+         (Lwt_result.map_p (eval table) exprs)
+     | _ ->
+       Lwt.fail_with "syntax error: concat")
 
   | E_cons { constructor=GetField; arguments } ->
-     (match arguments with
-       | [A_single e_json; A_single e_name] ->
-          Lwt_result.bind_result
-            (Lwt_result.both (eval table e_json) (eval table e_name))
-            (fun (v1, v2) -> get_field v1 v2)
-       | _ ->
-          Lwt.fail_with "syntax error: get-field")
+    (match arguments with
+     | [A_single e_json; A_single e_name] ->
+       Lwt_result.bind_result
+         (Lwt_result.both (eval table e_json) (eval table e_name))
+         (fun (v1, v2) -> get_field v1 v2)
+     | _ ->
+       Lwt.fail_with "syntax error: get-field")
 
   | E_cons { constructor=GetString; arguments } ->
-     (match arguments with
-       | [A_single e_json] ->
-          Lwt_result.bind_result
-            (eval table e_json)
-            get_string
-       | _ ->
-          Lwt.fail_with "syntax error: string")
+    (match arguments with
+     | [A_single e_json] ->
+       Lwt_result.bind_result
+         (eval table e_json)
+         get_string
+     | _ ->
+       Lwt.fail_with "syntax error: string")
 
   | E_cons { constructor=GetInteger; arguments } ->
-     (match arguments with
-       | [A_single e_json] ->
-          Lwt_result.bind_result
-            (eval table e_json)
-            get_integer
-       | _ ->
-          Lwt.fail_with "syntax error: integer")
+    (match arguments with
+     | [A_single e_json] ->
+       Lwt_result.bind_result
+         (eval table e_json)
+         get_integer
+     | _ ->
+       Lwt.fail_with "syntax error: integer")
 
   | E_cons { constructor=JsonObject; arguments } ->
-     (match arguments with
-       | [A_list fields] ->
-          Lwt_result.bind (Lwt_result.map_p (eval table) fields)
-            (fun fields ->
-               let rec loop fs = function
-                 | [] ->
-                    Ok (List.rev fs)
-                 | JsonField (nm, json)::vs ->
-                    loop ((nm, json)::fs) vs
-                 | _::_ ->
-                    Error "type error"
-               in
-               Lwt_result.bind (Lwt.return (loop [] fields))
-                 (fun fields ->
-                    Lwt_result.return (Json (`Assoc fields))))
-       | _ ->
-          Lwt.fail_with "syntax error: object")
+    (match arguments with
+     | [A_list fields] ->
+       Lwt_result.bind (Lwt_result.map_p (eval table) fields)
+         (fun fields ->
+            let rec loop fs = function
+              | [] ->
+                Ok (List.rev fs)
+              | JsonField (nm, json)::vs ->
+                loop ((nm, json)::fs) vs
+              | _::_ ->
+                Error "type error"
+            in
+            Lwt_result.bind
+              (Lwt.return (loop [] fields))
+              (fun fields ->
+                 Lwt_result.return (Json (`Assoc fields))))
+     | _ ->
+       Lwt.fail_with "syntax error: object")
 
   | E_cons { constructor=JsonField; arguments } ->
-     (match arguments with
-       | [A_single nm; A_single json] ->
-          Lwt_result.bind (Lwt_result.both (eval table nm) (eval table json))
-            (function
-              | String nm, Json json ->
-                 Lwt_result.return (JsonField (nm, json))
-              | _ ->
-                 Lwt_result.fail "type error")
-       | _ ->
-          Lwt.fail_with "syntax error: field")
+    (match arguments with
+     | [A_single nm; A_single json] ->
+       Lwt_result.bind (Lwt_result.both (eval table nm) (eval table json))
+         (function
+           | String nm, Json json ->
+             Lwt_result.return (JsonField (nm, json))
+           | _ ->
+             Lwt_result.fail "type error")
+     | _ ->
+       Lwt.fail_with "syntax error: field")
 
   | E_cons { constructor=JsonString; arguments } ->
-     (match arguments with
-       | [A_single e_str] ->
-          Lwt_result.(>|=) (eval table e_str) json_string
-       | _ ->
-          Lwt.fail_with "syntax error: json-string")
+    (match arguments with
+     | [A_single e_str] ->
+       Lwt_result.(>|=) (eval table e_str) json_string
+     | _ ->
+       Lwt.fail_with "syntax error: json-string")
 
   | E_cons { constructor=JsonNumber; arguments } ->
-     (match arguments with
-       | [A_single e_str] ->
-          Lwt_result.(>|=) (eval table e_str) json_number
-       | _ ->
-          Lwt.fail_with "syntax error: json-number")
+    (match arguments with
+     | [A_single e_str] ->
+       Lwt_result.(>|=) (eval table e_str) json_number
+     | _ ->
+       Lwt.fail_with "syntax error: json-number")
 
   | E_cons { constructor=Is_equal_String; arguments } ->
-     (match arguments with
-       | [A_single e1; A_single e2] ->
-          Lwt_result.bind
-            (Lwt_result.both (eval table e1) (eval table e2))
-            (function
-              | String s1, String s2 ->
-                 Lwt_result.return (Boolean (s1 = s2))
-              | _ ->
-                 Lwt.fail_with "type error")
-       | _ ->
-          Lwt.fail_with "syntax error: eq-string?")
+    (match arguments with
+     | [A_single e1; A_single e2] ->
+       Lwt_result.bind
+         (Lwt_result.both (eval table e1) (eval table e2))
+         (function
+           | String s1, String s2 ->
+             Lwt_result.return (Boolean (s1 = s2))
+           | _ ->
+             Lwt.fail_with "type error")
+     | _ ->
+       Lwt.fail_with "syntax error: eq-string?")
 
   | E_cons { constructor=Is_equal_Integer; arguments } ->
-     (match arguments with
-       | [A_single e1; A_single e2] ->
-          Lwt_result.bind
-            (Lwt_result.both (eval table e1) (eval table e2))
-            (function
-              | Integer i1, Integer i2 ->
-                 Lwt_result.return (Boolean (i1 = i2))
-              | _ ->
-                 Lwt.fail_with "type error")
-       | _ ->
-          Lwt.fail_with "syntax error: eq-integer?")
+    (match arguments with
+     | [A_single e1; A_single e2] ->
+       Lwt_result.bind
+         (Lwt_result.both (eval table e1) (eval table e2))
+         (function
+           | Integer i1, Integer i2 ->
+             Lwt_result.return (Boolean (i1 = i2))
+           | _ ->
+             Lwt.fail_with "type error")
+     | _ ->
+       Lwt.fail_with "syntax error: eq-integer?")
 
   | E_cons { constructor=If; arguments } ->
-     (match arguments with
-       | [A_single e_c; A_single e_thn; A_single e_els] ->
-          Lwt_result.bind (eval table e_c)
-            (function
-              | Boolean true ->
-                 eval table e_thn
-              | Boolean false ->
-                 eval table e_els
-              | _ ->
-                 Lwt.return (Error "type error"))
-       | _ ->
-          Lwt.fail_with "syntax error: if")
+    (match arguments with
+     | [A_single e_c; A_single e_thn; A_single e_els] ->
+       Lwt_result.bind (eval table e_c)
+         (function
+           | Boolean true ->
+             eval table e_thn
+           | Boolean false ->
+             eval table e_els
+           | _ ->
+             Lwt.return (Error "type error"))
+     | _ ->
+       Lwt.fail_with "syntax error: if")
 
   | E_cons { constructor=Try; arguments } ->
-     (match arguments with
-       | [A_single body; A_single on_error] ->
-          Lwt.bind (eval table body)
-            (function
-              | Ok value ->
-                 Lwt_result.return value
-              | Error _ ->
-                 eval table on_error)
-       | _ ->
-          Lwt.fail_with "syntax error: try")
+    (match arguments with
+     | [A_single body; A_single on_error] ->
+       Lwt.bind (eval table body)
+         (function
+           | Ok value ->
+             Lwt_result.return value
+           | Error _ ->
+             eval table on_error)
+     | _ ->
+       Lwt.fail_with "syntax error: try")
 
   | E_cons { constructor=Error; arguments } ->
-     (match arguments with
-       | [A_single e_msg] ->
-          Lwt_result.bind (eval table e_msg)
-            (function
-              | String s ->
-                 Lwt_result.fail s
-              | _ ->
-                 Lwt.return (Error "type error"))
-       | _ ->
-          Lwt.fail_with "syntax error: error")
+    (match arguments with
+     | [A_single e_msg] ->
+       Lwt_result.bind (eval table e_msg)
+         (function
+           | String s ->
+             Lwt_result.fail s
+           | _ ->
+             Lwt.return (Error "type error"))
+     | _ ->
+       Lwt.fail_with "syntax error: error")
 
   | E_cons { constructor=First_successful; arguments } ->
-     (match arguments with
-       | [A_list exprs] ->
-          let rec try_loop = function
-            | [] ->
-               Lwt_result.fail "No successful result"
-            | expr::exprs ->
-               Lwt.bind (eval table expr)
-                 (function
-                   | Ok value ->
-                      Lwt_result.return value
-                   | Error _ ->
-                      try_loop exprs)
-          in
-          try_loop exprs
-       | _ ->
-          Lwt.fail_with "syntax error: first-successful")
+    (match arguments with
+     | [A_list exprs] ->
+       let rec try_loop = function
+         | [] ->
+           Lwt_result.fail "No successful result"
+         | expr::exprs ->
+           Lwt.bind (eval table expr)
+             (function
+               | Ok value ->
+                 Lwt_result.return value
+               | Error _ ->
+                 try_loop exprs)
+       in
+       try_loop exprs
+     | _ ->
+       Lwt.fail_with "syntax error: first-successful")
 
   | E_cons { constructor=Parse_json; arguments } ->
-     (match arguments with
-       | [A_single e] ->
-          Lwt_result.bind
-            (eval table e)
-            (function
-              | String str ->
-                 (match Yojson.Basic.from_string str with
-                   | exception (Yojson.Json_error msg) ->
-                      Lwt_result.fail msg
-                   | json ->
-                      Lwt_result.return (Json json))
-              | _ ->
-                 Lwt.fail_with "type error")
-       | _ ->
-          Lwt.fail_with "syntax error: json-of-string")
+    (match arguments with
+     | [A_single e] ->
+       Lwt_result.bind
+         (eval table e)
+         (function
+           | String str ->
+             (match Yojson.Basic.from_string str with
+              | exception (Yojson.Json_error msg) ->
+                Lwt_result.fail msg
+              | json ->
+                Lwt_result.return (Json json))
+           | _ ->
+             Lwt.fail_with "type error")
+     | _ ->
+       Lwt.fail_with "syntax error: json-of-string")
 
   | E_cons { constructor=Http_get; arguments } ->
-     (match arguments with
-       | [A_single e_url] ->
-          Lwt_result.bind
-            (eval table e_url)
-            (function
-              | String uri_str ->
-                 let uri = Uri.of_string uri_str in
-                 Lwt_result.bind
-                   (Lwt_result.map_err
-                      Printexc.to_string
-                      (Lwt_result.catch (Cohttp_lwt_unix.Client.get uri)))
-                   (fun (resp, body) ->
-                      if Cohttp.Response.status resp = `OK then
-                        Lwt.bind
-                          (Cohttp_lwt.Body.to_string body)
-                          (fun data -> Lwt_result.return (String data))
-                      else
-                        Lwt_result.fail "HTTP failed")
-              | _ ->
-                 Lwt.fail_with "type error")
-       | _ ->
-          Lwt.fail_with "syntax error: http-get")
+    (match arguments with
+     | [A_single e_url] ->
+       Lwt_result.bind
+         (eval table e_url)
+         (function
+           | String uri_str ->
+             let uri = Uri.of_string uri_str in
+             Lwt_result.bind
+               (Lwt_result.map_err
+                  Printexc.to_string
+                  (Lwt_result.catch (Cohttp_lwt_unix.Client.get uri)))
+               (fun (resp, body) ->
+                  if Cohttp.Response.status resp = `OK then
+                    Lwt.bind
+                      (Cohttp_lwt.Body.to_string body)
+                      (fun data -> Lwt_result.return (String data))
+                  else
+                    Lwt_result.fail "HTTP failed")
+           | _ ->
+             Lwt.fail_with "type error")
+     | _ ->
+       Lwt.fail_with "syntax error: http-get")
 
 let eval args program =
   let table = Hashtbl.create 100 in

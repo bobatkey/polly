@@ -3,7 +3,7 @@ type 'a class_data =
   | Node of 'a equiv_class
 
 and 'a equiv_class =
-    'a class_data ref
+  'a class_data ref
 
 let make_class x =
   ref (Root (0, x))

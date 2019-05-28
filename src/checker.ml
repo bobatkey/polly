@@ -116,13 +116,13 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
     let inst = Hashtbl.create 10 in
     let inst_sort = function
       | V nm ->
-         (try MV (Hashtbl.find inst nm)
-          with Not_found ->
-            let c = Unionfind.make_class None in
-            Hashtbl.add inst nm c;
-            MV c)
+        (try MV (Hashtbl.find inst nm)
+         with Not_found ->
+           let c = Unionfind.make_class None in
+           Hashtbl.add inst nm c;
+           MV c)
       | B s ->
-         Ba s
+        Ba s
     in
     let inst_arg_sort { multiplicity; sort } =
       (multiplicity, inst_sort sort)
@@ -140,79 +140,79 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
 
   let unify sort1 sort2 =
     match sort1, sort2 with
-      | MV mv1, MV mv2 -> begin
-          if Unionfind.equiv mv1 mv2 then
+    | MV mv1, MV mv2 -> begin
+        if Unionfind.equiv mv1 mv2 then
+          Ok ()
+        else match Unionfind.find mv1, Unionfind.find mv2 with
+          | None, None ->
+            Unionfind.union mv1 mv2; Ok ()
+          | None, Some s | Some s, None ->
+            Unionfind.union mv1 mv2;
+            Unionfind.set mv1 (Some s);
             Ok ()
-          else match Unionfind.find mv1, Unionfind.find mv2 with
-            | None, None ->
-               Unionfind.union mv1 mv2; Ok ()
-            | None, Some s | Some s, None ->
-               Unionfind.union mv1 mv2;
-               Unionfind.set mv1 (Some s);
-               Ok ()
-            | Some s1, Some s2 ->
-               if L.Sort.equal s1 s2 then
-                 (Unionfind.union mv1 mv2; Ok ())
-               else
-                 sort_mismatch s1 s2
-        end
-      | MV mv, Ba s1 | Ba s1, MV mv -> begin
-          match Unionfind.find mv with
-            | None ->
-               Unionfind.set mv (Some s1); Ok ()
-            | Some s2 ->
-               if L.Sort.equal s1 s2 then
-                 Ok ()
-               else
-                 sort_mismatch s1 s2
-        end
-      | Ba s1, Ba s2 ->
-         if L.Sort.equal s1 s2 then
-           Ok ()
-         else
-           sort_mismatch s1 s2
+          | Some s1, Some s2 ->
+            if L.Sort.equal s1 s2 then
+              (Unionfind.union mv1 mv2; Ok ())
+            else
+              sort_mismatch s1 s2
+      end
+    | MV mv, Ba s1 | Ba s1, MV mv -> begin
+        match Unionfind.find mv with
+        | None ->
+          Unionfind.set mv (Some s1); Ok ()
+        | Some s2 ->
+          if L.Sort.equal s1 s2 then
+            Ok ()
+          else
+            sort_mismatch s1 s2
+      end
+    | Ba s1, Ba s2 ->
+      if L.Sort.equal s1 s2 then
+        Ok ()
+      else
+        sort_mismatch s1 s2
 
   let rec check env = function
     | Ast.E_name nm -> begin
         match Hashtbl.find env nm with
-          | exception Not_found ->
-             R.errorf "Name '%s' not defined" nm
-          | sort ->
-             Ok (E_name nm, Ba sort)
+        | exception Not_found ->
+          R.errorf "Name '%s' not defined" nm
+        | sort ->
+          Ok (E_name nm, Ba sort)
       end
 
     | Ast.E_cons { constructor; arguments } -> begin
         match L.constructor_of_string constructor with
-          | Error () ->
-             R.errorf "Symbol '%s' not understood" constructor
-          | Ok constructor ->
-             let arg_sorts, ret_sort =
-               instantiate (L.sort_of_constructor constructor)
-             in
-             check_arguments env [] arguments arg_sorts >>= fun arguments ->
-             Ok (E_cons { constructor; arguments }, ret_sort)
+        | Error () ->
+          R.errorf "Symbol '%s' not understood" constructor
+        | Ok constructor ->
+          let arg_sorts, ret_sort =
+            instantiate (L.sort_of_constructor constructor)
+          in
+          check_arguments env [] arguments arg_sorts >>= fun arguments ->
+          Ok (E_cons { constructor; arguments }, ret_sort)
       end
 
     | Ast.E_string s ->
-       Ok (E_string s, Ba L.string_sort)
+      Ok (E_string s, Ba L.string_sort)
 
     | Ast.E_int i ->
-       Ok (E_int i, Ba L.integer_sort)
+      Ok (E_int i, Ba L.integer_sort)
 
   and check_arguments env checked arguments sorts =
     match arguments, sorts with
-      | [], [] ->
-         Ok (List.rev checked)
+    | [], [] ->
+      Ok (List.rev checked)
 
-      | arg::arguments, sort::sorts ->
-         check_argument env arg sort >>= fun arg ->
-         check_arguments env (arg::checked) arguments sorts
+    | arg::arguments, sort::sorts ->
+      check_argument env arg sort >>= fun arg ->
+      check_arguments env (arg::checked) arguments sorts
 
-      | [], _::_ ->
-         Error "not enough parameters"
+    | [], _::_ ->
+      Error "not enough parameters"
 
-      | _::_, [] ->
-         Error "too many parameters"
+    | _::_, [] ->
+      Error "too many parameters"
 
   and check_against env expr sort =
     check env expr >>= fun (expr, sort') ->
@@ -221,28 +221,28 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
 
   and check_argument env argument sort =
     match argument, sort with
-      | Ast.A_single e, (`Single, sort) ->
-         check_against env e sort >>= fun e ->
-         Ok (A_single e)
+    | Ast.A_single e, (`Single, sort) ->
+      check_against env e sort >>= fun e ->
+      Ok (A_single e)
 
-      | Ast.A_list es, (`Multiple, sort) ->
-         check_list env [] es sort >>= fun es ->
-         Ok (A_list es)
+    | Ast.A_list es, (`Multiple, sort) ->
+      check_list env [] es sort >>= fun es ->
+      Ok (A_list es)
 
-      | Ast.A_single _, (`Multiple, _) ->
-         (* FIXME: could silently promote? *)
-         Error "multi-parameter expected"
+    | Ast.A_single _, (`Multiple, _) ->
+      (* FIXME: could silently promote? *)
+      Error "multi-parameter expected"
 
-      | Ast.A_list _, (`Single, _) ->
-         Error "single parameter expected"
+    | Ast.A_list _, (`Single, _) ->
+      Error "single parameter expected"
 
   and check_list env checked exprs sort =
     match exprs with
-      | [] ->
-         Ok (List.rev checked)
-      | expr::exprs ->
-         check_against env expr sort >>= fun expr ->
-         check_list env (expr::checked) exprs sort
+    | [] ->
+      Ok (List.rev checked)
+    | expr::exprs ->
+      check_against env expr sort >>= fun expr ->
+      check_list env (expr::checked) exprs sort
 
   let check_program program main_sort =
     let defined  = Hashtbl.create 20 in
