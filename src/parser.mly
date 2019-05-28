@@ -27,8 +27,8 @@ declaration:
     { { name; sort; defn = Some expr } }
 
 type_expr:
-  | name=LC_IDENT
-    { T_name name }
+  | ident=LC_IDENT
+    { { ident; loc = Location.mk $startpos $endpos } }
 
 expr:
   | constructor=LC_IDENT; arguments=nonempty_list(argument)

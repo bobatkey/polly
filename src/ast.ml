@@ -1,5 +1,7 @@
 type sort =
-  | T_name of string
+  { ident : string
+  ; loc   : Location.t
+  }
 
 type expr_data =
   | E_name   of string

@@ -248,17 +248,24 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
       check_against env expr sort >>= fun expr ->
       check_list env (expr::checked) exprs sort
 
+  let check_sort Ast.{ ident; loc } =
+    match L.sort_of_string ident with
+    | Ok sort ->
+       Ok sort
+    | Error () ->
+       R.errorf "Sort name '%s' not recognised at %a"
+         ident
+         Location.pp loc
+
   let check_program program main_sort =
     let defined  = Hashtbl.create 20 in
     let required = Hashtbl.create 20 in
     let env      = Hashtbl.create 20 in
-    let check_decl Ast.{ name; sort = T_name sort_name; defn } =
+    let check_decl Ast.{ name; sort; defn } =
       if Hashtbl.mem env name then
         R.errorf "Name '%s' defined multiple times" name
       else
-        R.map_err
-          (fun () -> Printf.sprintf "Sort name '%s' not recognised" sort_name)
-          (L.sort_of_string sort_name)
+        check_sort sort
         >>= fun sort ->
         Hashtbl.add env name sort;
         match defn with
@@ -266,7 +273,8 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
              Hashtbl.add required name sort;
              Ok ()
           | Some expr ->
-             check_against env expr (Ba sort) >>= fun expr ->
+             check_against env expr (Ba sort)
+             >>= fun expr ->
              Hashtbl.add defined name expr;
              Ok ()
     in
