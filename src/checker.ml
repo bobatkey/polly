@@ -173,18 +173,22 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
         sort_mismatch s1 s2
 
   let rec check env = function
-    | Ast.E_name nm -> begin
+    | Ast.{ data = E_name nm; loc } -> begin
         match Hashtbl.find env nm with
         | exception Not_found ->
-          R.errorf "Name '%s' not defined" nm
+          R.errorf "Name '%s' not defined at %a"
+            nm
+            Location.pp loc
         | sort ->
           Ok (E_name nm, Ba sort)
       end
 
-    | Ast.E_cons { constructor; arguments } -> begin
+    | Ast.{ data = E_cons { constructor; arguments }; loc } -> begin
         match L.constructor_of_string constructor with
         | Error () ->
-          R.errorf "Symbol '%s' not understood" constructor
+          R.errorf "Symbol '%s' not understood at %a"
+            constructor
+            Location.pp loc
         | Ok constructor ->
           let arg_sorts, ret_sort =
             instantiate (L.sort_of_constructor constructor)
@@ -193,10 +197,10 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
           Ok (E_cons { constructor; arguments }, ret_sort)
       end
 
-    | Ast.E_string s ->
+    | Ast.{ data = E_string s; loc = _ } ->
       Ok (E_string s, Ba L.string_sort)
 
-    | Ast.E_int i ->
+    | Ast.{ data = E_int i; loc = _ } ->
       Ok (E_int i, Ba L.integer_sort)
 
   and check_arguments env checked arguments sorts =

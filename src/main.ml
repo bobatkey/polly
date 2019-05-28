@@ -6,7 +6,10 @@ let split_on_equal str =
 let read_file filename =
   let ch = open_in filename in
   match
-    Parser.program Lexer.token (Lexing.from_channel ch)
+    let lexbuf = Lexing.from_channel ch in
+    (let open Lexing in
+     lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_fname = filename });
+    Parser.program Lexer.token lexbuf
   with
     | result -> close_in ch; result
     | exception e -> close_in ch; raise e

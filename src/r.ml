@@ -1,5 +1,5 @@
 let errorf fmt =
-  Printf.ksprintf (fun e -> Error e) fmt
+  Format.kasprintf (fun e -> Error e) fmt
 
 module Infix = struct
   let (>>=) x f = match x with

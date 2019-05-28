@@ -32,23 +32,28 @@ type_expr:
 
 expr:
   | constructor=LC_IDENT; arguments=nonempty_list(argument)
-    { E_cons { constructor; arguments } }
+    { { data = E_cons { constructor; arguments }
+      ; loc  = Location.mk $startpos $endpos } }
 
   | e=base_expr
     { e }
 
 base_expr:
   | name=LC_IDENT
-    { E_name name }
+    { { data = E_name name
+      ; loc  = Location.mk $startpos $endpos } }
 
   | constructor=UC_IDENT
-    { E_cons { constructor; arguments = [] } }
+    { { data = E_cons { constructor; arguments = [] }
+      ; loc  = Location.mk $startpos $endpos } }
 
   | s=STRINGLIT
-    { E_string s }
+    { { data = E_string s
+      ; loc  = Location.mk $startpos $endpos } }
 
   | i=INTLIT
-    { E_int i }
+    { { data = E_int i
+      ; loc  = Location.mk $startpos $endpos } }
 
   | LPAREN; e=expr; RPAREN
     { e }
