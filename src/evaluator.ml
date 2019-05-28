@@ -68,11 +68,15 @@ open Value.Type
 open Decision.Type
 open Polly.Checker
 
-type (_,_) conv =
-  | Ret  : ('a -> value) -> ('a, value) conv
-  | RetE : ('a -> value) -> (('a,string) result, (value,string) result) conv
-  | ArgS : (value -> 'a option) * ('b,'c) conv -> ('a -> 'b, value -> 'c) conv
-  | ArgL : (value -> 'a option) * ('b,'c) conv -> ('a list -> 'b, value list -> 'c) conv
+type 'a io =
+  IO of ('a,string) result Lwt.t
+
+type _ spec =
+  | Ret   : ('a -> value) -> 'a spec
+  | RetE  : ('a -> value) -> ('a,string) result spec
+  | RetIO : ('a -> value) -> 'a io spec
+  | ArgS  : (value -> 'a option) * 'b spec -> ('a -> 'b) spec
+  | ArgL  : (value -> 'a option) * 'b spec -> ('a list -> 'b) spec
 
 type 'a ep =
   { embed   : 'a -> value
@@ -107,70 +111,146 @@ let decision =
                | _          -> None)
   }
 
+let boolean =
+  { embed   = (fun b -> Boolean b)
+  ; project = (function
+               | Boolean b -> Some b
+               | _         -> None)
+  }
+
+let jsonfield =
+  { embed   = (fun (nm, j) -> JsonField (nm, j))
+  ; project = (function
+               | JsonField (nm, j) -> Some (nm, j)
+               | _                 -> None)
+  }
+
+let value =
+  { embed   = (fun v -> v)
+  ; project = (fun x -> Some x)
+  }
+
 let ret ep = Ret ep.embed
 let ret_e ep = RetE ep.embed
+let ret_io ep = RetIO ep.embed
 let (@->) ep c = ArgS (ep.project, c)
 let (@*->) ep c = ArgL (ep.project, c)
 
 let rec traverse f = function
   | [] -> Some []
   | x::xs ->
-     (match f x with
+    (match f x with
+     | None -> None
+     | Some y ->
+       match traverse f xs with
        | None -> None
-       | Some y ->
-          match traverse f xs with
-            | None -> None
-            | Some ys -> Some (y::ys))
+       | Some ys -> Some (y::ys))
 
-let rec conv : type a b. (a,b) conv -> a -> b =
-  function
-  | Ret e ->
-     e
-  | RetE e ->
-     (function
-      | Ok x -> Ok (e x)
-      | Error _ as e -> e)
-  | ArgS (p, c) ->
-     (fun f v -> match p v with
-                 | None -> failwith "type error"
-                 | Some a -> conv c (f a))
-  | ArgL (p, c) ->
-     (fun f vs -> match traverse p vs with
-                  | None -> failwith "type error"
-                  | Some xs -> conv c (f xs))
+let eval_args eval args =
+  Lwt_result.map_p
+    (function
+      | A_single arg -> Lwt_result.map (fun s -> `S s) (eval arg)
+      | A_list args  -> Lwt_result.map (fun l -> `L l) (Lwt_result.map_p eval args))
+    args
 
+let rec lift : type a. a spec -> a -> [`S of value|`L of value list] list -> (value,string) result Lwt.t =
+  fun spec f args -> match spec, f, args with
+    | Ret em, v, [] ->
+      Lwt.return (Ok (em v))
+    | RetE em, v, [] ->
+      (match v with
+       | Ok x         -> Lwt.return (Ok (em x))
+       | Error _ as e -> Lwt.return e)
+    | RetIO em, IO t, [] ->
+      Lwt_result.map em t
+    | ArgS (p, c), f, `S v::args ->
+      (match p v with
+       | None -> Lwt.fail_with "type error"
+       | Some x -> lift c (f x) args)
+    | ArgL (p, c), f, `L vs::args ->
+      (match traverse p vs with
+       | None -> Lwt.fail_with "type error"
+       | Some xs -> lift c (f xs) args)
+    | _ ->
+      Lwt.fail_with "wrong number or kind of arguments"
+
+let lift spec f eval arguments =
+  Lwt_result.bind
+    (eval_args eval arguments)
+    (lift spec f)
 
 let concat =
-  conv (string @*-> ret string)
+  lift (string @*-> ret string)
     (String.concat "")
 
-let permit = conv (ret decision) Permit
-let deny   = conv (ret decision) Deny
+let permit = lift (ret decision) Permit
+let deny   = lift (ret decision) Deny
 let get_field =
-  conv (json @-> string @-> ret_e json)
-    (fun json fnm ->
-      match json with
-      | `Assoc assocs ->
+  lift (json @-> string @-> ret_e json)
+    (fun json fnm -> match json with
+       | `Assoc assocs ->
          (match List.assoc fnm assocs with
           | exception Not_found -> Error "field not found"
           | value               -> Ok value)
-      | _ ->
+       | _ ->
          Error "not a JSON object")
 let get_string =
-  conv (json @-> ret_e string)
+  lift (json @-> ret_e string)
     (function `String s -> Ok s
             | _         -> Error "json: not a string")
 let get_integer =
-  conv (json @-> ret_e integer)
+  lift (json @-> ret_e integer)
     (function `Int i -> Ok i
             | _      -> Error "json: not an integer")
+let json_object =
+  lift (jsonfield @*-> ret json)
+    (fun fields -> `Assoc fields)
+let json_field =
+  lift (string @-> json @-> ret jsonfield)
+    (fun nm j -> (nm, j))
 let json_string =
-  conv (string @-> ret json)
+  lift (string @-> ret json)
     (fun s -> `String s)
 let json_number =
-  conv (integer @-> ret json)
+  lift (integer @-> ret json)
     (fun i -> `Int i)
 
+let eq_string =
+  lift (string @-> string @-> ret boolean)
+    (=)
+let eq_integer =
+  lift (integer @-> integer @-> ret boolean)
+    (=)
+
+let error =
+  lift (string @-> ret_e value)
+    (fun s -> Error s)
+
+let parse_json =
+  lift (string @-> ret_e json)
+    (fun str -> match Yojson.Basic.from_string str with
+       | exception (Yojson.Json_error msg) ->
+         Error msg
+       | json ->
+         Ok json)
+
+let http_get =
+  lift (string @-> ret_io string)
+    begin fun uri_str ->
+      let uri = Uri.of_string uri_str in
+      IO (Lwt_result.bind
+            (Lwt_result.map_err
+               Printexc.to_string
+               (Lwt_result.catch (Cohttp_lwt_unix.Client.get uri)))
+            (fun (resp, body) ->
+               if Cohttp.Response.status resp = `OK then
+                 Lwt_result.ok (Cohttp_lwt.Body.to_string body)
+               else
+                 Lwt_result.fail "HTTP failed"))
+    end
+
+
+(**********************************************************************)
 
 type state =
   | Evaled   of (Value.t, string) Lwt_result.t
@@ -209,14 +289,10 @@ and eval table = function
     Lwt_result.return (Integer i)
 
   | E_cons { constructor=Permit; arguments } ->
-    (match arguments with
-     | [] -> Lwt_result.return (Decision Permit)
-     | _  -> Lwt.fail_with "syntax error: PERMIT")
+    permit (eval table) arguments
 
   | E_cons { constructor=Deny; arguments } ->
-    (match arguments with
-     | [] -> Lwt_result.return (Decision Deny)
-     | _  -> Lwt.fail_with "syntax error: DENY")
+    deny (eval table) arguments
 
   | E_cons { constructor=Guard; arguments } ->
     (match arguments with
@@ -253,112 +329,34 @@ and eval table = function
        Lwt.fail_with "syntax error: first-applicable")
 
   | E_cons { constructor=Concat; arguments } ->
-    (match arguments with
-     | [A_list exprs] ->
-       Lwt_result.map
-         concat
-         (Lwt_result.map_p (eval table) exprs)
-     | _ ->
-       Lwt.fail_with "syntax error: concat")
+    concat (eval table) arguments
 
   | E_cons { constructor=GetField; arguments } ->
-    (match arguments with
-     | [A_single e_json; A_single e_name] ->
-       Lwt_result.bind_result
-         (Lwt_result.both (eval table e_json) (eval table e_name))
-         (fun (v1, v2) -> get_field v1 v2)
-     | _ ->
-       Lwt.fail_with "syntax error: get-field")
+    get_field (eval table) arguments
 
   | E_cons { constructor=GetString; arguments } ->
-    (match arguments with
-     | [A_single e_json] ->
-       Lwt_result.bind_result
-         (eval table e_json)
-         get_string
-     | _ ->
-       Lwt.fail_with "syntax error: string")
+    get_string (eval table) arguments
 
   | E_cons { constructor=GetInteger; arguments } ->
-    (match arguments with
-     | [A_single e_json] ->
-       Lwt_result.bind_result
-         (eval table e_json)
-         get_integer
-     | _ ->
-       Lwt.fail_with "syntax error: integer")
+    get_integer (eval table) arguments
 
   | E_cons { constructor=JsonObject; arguments } ->
-    (match arguments with
-     | [A_list fields] ->
-       Lwt_result.bind (Lwt_result.map_p (eval table) fields)
-         (fun fields ->
-            let rec loop fs = function
-              | [] ->
-                Ok (List.rev fs)
-              | JsonField (nm, json)::vs ->
-                loop ((nm, json)::fs) vs
-              | _::_ ->
-                Error "type error"
-            in
-            Lwt_result.bind
-              (Lwt.return (loop [] fields))
-              (fun fields ->
-                 Lwt_result.return (Json (`Assoc fields))))
-     | _ ->
-       Lwt.fail_with "syntax error: object")
+    json_object (eval table) arguments
 
   | E_cons { constructor=JsonField; arguments } ->
-    (match arguments with
-     | [A_single nm; A_single json] ->
-       Lwt_result.bind (Lwt_result.both (eval table nm) (eval table json))
-         (function
-           | String nm, Json json ->
-             Lwt_result.return (JsonField (nm, json))
-           | _ ->
-             Lwt_result.fail "type error")
-     | _ ->
-       Lwt.fail_with "syntax error: field")
+    json_field (eval table) arguments
 
   | E_cons { constructor=JsonString; arguments } ->
-    (match arguments with
-     | [A_single e_str] ->
-       Lwt_result.(>|=) (eval table e_str) json_string
-     | _ ->
-       Lwt.fail_with "syntax error: json-string")
+    json_string (eval table) arguments
 
   | E_cons { constructor=JsonNumber; arguments } ->
-    (match arguments with
-     | [A_single e_str] ->
-       Lwt_result.(>|=) (eval table e_str) json_number
-     | _ ->
-       Lwt.fail_with "syntax error: json-number")
+    json_number (eval table) arguments
 
   | E_cons { constructor=Is_equal_String; arguments } ->
-    (match arguments with
-     | [A_single e1; A_single e2] ->
-       Lwt_result.bind
-         (Lwt_result.both (eval table e1) (eval table e2))
-         (function
-           | String s1, String s2 ->
-             Lwt_result.return (Boolean (s1 = s2))
-           | _ ->
-             Lwt.fail_with "type error")
-     | _ ->
-       Lwt.fail_with "syntax error: eq-string?")
+    eq_string (eval table) arguments
 
   | E_cons { constructor=Is_equal_Integer; arguments } ->
-    (match arguments with
-     | [A_single e1; A_single e2] ->
-       Lwt_result.bind
-         (Lwt_result.both (eval table e1) (eval table e2))
-         (function
-           | Integer i1, Integer i2 ->
-             Lwt_result.return (Boolean (i1 = i2))
-           | _ ->
-             Lwt.fail_with "type error")
-     | _ ->
-       Lwt.fail_with "syntax error: eq-integer?")
+    eq_integer (eval table) arguments
 
   | E_cons { constructor=If; arguments } ->
     (match arguments with
@@ -387,16 +385,7 @@ and eval table = function
        Lwt.fail_with "syntax error: try")
 
   | E_cons { constructor=Error; arguments } ->
-    (match arguments with
-     | [A_single e_msg] ->
-       Lwt_result.bind (eval table e_msg)
-         (function
-           | String s ->
-             Lwt_result.fail s
-           | _ ->
-             Lwt.return (Error "type error"))
-     | _ ->
-       Lwt.fail_with "syntax error: error")
+    error (eval table) arguments
 
   | E_cons { constructor=First_successful; arguments } ->
     (match arguments with
@@ -417,45 +406,10 @@ and eval table = function
        Lwt.fail_with "syntax error: first-successful")
 
   | E_cons { constructor=Parse_json; arguments } ->
-    (match arguments with
-     | [A_single e] ->
-       Lwt_result.bind
-         (eval table e)
-         (function
-           | String str ->
-             (match Yojson.Basic.from_string str with
-              | exception (Yojson.Json_error msg) ->
-                Lwt_result.fail msg
-              | json ->
-                Lwt_result.return (Json json))
-           | _ ->
-             Lwt.fail_with "type error")
-     | _ ->
-       Lwt.fail_with "syntax error: json-of-string")
+    parse_json (eval table) arguments
 
   | E_cons { constructor=Http_get; arguments } ->
-    (match arguments with
-     | [A_single e_url] ->
-       Lwt_result.bind
-         (eval table e_url)
-         (function
-           | String uri_str ->
-             let uri = Uri.of_string uri_str in
-             Lwt_result.bind
-               (Lwt_result.map_err
-                  Printexc.to_string
-                  (Lwt_result.catch (Cohttp_lwt_unix.Client.get uri)))
-               (fun (resp, body) ->
-                  if Cohttp.Response.status resp = `OK then
-                    Lwt.bind
-                      (Cohttp_lwt.Body.to_string body)
-                      (fun data -> Lwt_result.return (String data))
-                  else
-                    Lwt_result.fail "HTTP failed")
-           | _ ->
-             Lwt.fail_with "type error")
-     | _ ->
-       Lwt.fail_with "syntax error: http-get")
+    http_get (eval table) arguments
 
 let eval args program =
   let table = Hashtbl.create 100 in
