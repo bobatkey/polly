@@ -1,6 +1,7 @@
 type constructor =
   | Permit
   | Deny
+  | Not_applicable
 
   | Guard
   | FirstApplicable
@@ -70,6 +71,7 @@ module Language = struct
   let constructor_of_string = function
     | "PERMIT"           -> Ok Permit
     | "DENY"             -> Ok Deny
+    | "NOT_APPLICABLE"   -> Ok Not_applicable
     | "guard"            -> Ok Guard
     | "first-applicable" -> Ok FirstApplicable
     | "concat"           -> Ok Concat
@@ -97,6 +99,9 @@ module Language = struct
       return (B Decision)
     | Deny ->
       return (B Decision)
+    | Not_applicable ->
+      return (B Decision)
+
     | Guard ->
       B Boolean @--> B Decision @--> return (B Decision)
     | FirstApplicable ->

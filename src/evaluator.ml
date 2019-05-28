@@ -185,6 +185,7 @@ let concat =
 
 let permit = lift (ret decision) Permit
 let deny   = lift (ret decision) Deny
+let not_applicable = lift (ret decision) Not_applicable
 let get_field =
   lift (json @-> string @-> ret_e json)
     (fun json fnm -> match json with
@@ -293,6 +294,9 @@ and eval table = function
 
   | E_cons { constructor=Deny; arguments } ->
     deny (eval table) arguments
+
+  | E_cons { constructor=Not_applicable; arguments } ->
+    not_applicable (eval table) arguments
 
   | E_cons { constructor=Guard; arguments } ->
     (match arguments with
