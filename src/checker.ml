@@ -74,17 +74,6 @@ module type CHECKER = sig
   val check_program : Ast.program -> L.sort -> (program, string) result
 end
 
-(* A plan for strictness / laziness and control flow
-   - During elaboration, we describe how to elaborate into primitive
-     control flow operations.
-   - Ultimately split into:
-     - Basic control flow ('if', and maybe 'switch')
-       - lazy in their
-     - Pure functions (strict in their arguments)
-       - arguments are executed in parallel
-     - IO functions, which will require asynchronous operation.
-*)
-
 module Make (L : LANGUAGE) : CHECKER with module L = L = struct
   module L = L
 
@@ -234,7 +223,6 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
       Ok (A_list es)
 
     | Ast.A_single _, (`Multiple, _) ->
-      (* FIXME: could silently promote? *)
       Error "multi-parameter expected"
 
     | Ast.A_list _, (`Single, _) ->
