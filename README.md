@@ -11,14 +11,13 @@ To build:
          opam switch create . 4.07.1
 
  4. Set up paths:
- 
+
           eval $(opam env)
 
- 4. Install the package:
+ 5. Install the package:
 
          opam install .
 
- 5. Run it:
+ 6. Run it:
 
          polly test.polly id1=4 id2=67
-
