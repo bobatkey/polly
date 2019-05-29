@@ -15,16 +15,26 @@ let read_file filename =
     | exception e -> close_in ch; raise e
 
 let exec_and_print arguments program =
-  Lwt.bind (Evaluator.eval arguments program)
-    (function
-      | Ok (Evaluator.Value.Json json) ->
-         let str = Yojson.Basic.to_string json in
-         Lwt_fmt.printf "%s@." str
-      | Ok v ->
-         Lwt_fmt.eprintf "Error: unexpected value returned: (@[%a@])@."
-           Evaluator.Value.pp v
-      | Error msg ->
-         Lwt_fmt.eprintf "Error %S@." msg)
+  let open Lwt.Infix in
+  Evaluator.eval arguments program
+  >>= fun result ->
+  Lwt_io.flush Lwt_io.stderr
+  >>= fun () -> match result with
+  | Ok (Evaluator.Value.Json json) ->
+    let str = Yojson.Basic.to_string json in
+    Lwt_fmt.printf "%s@." str
+    >|= fun () ->
+    0
+  | Ok v ->
+    Lwt_fmt.eprintf
+      "Error: unexpected value returned: (@[%a@])@."
+      Evaluator.Value.pp v
+    >|= fun () ->
+    1
+  | Error msg ->
+    Lwt_fmt.eprintf "Error %S@." msg
+    >|= fun () ->
+    1
 
 let () =
   let filename, arguments =
@@ -37,7 +47,8 @@ let () =
   let ast = read_file filename in
   match Polly.Checker.check_program ast Polly.Json with
     | Error msg ->
-       prerr_endline msg;
-       exit 1
+      prerr_endline msg;
+      exit 1
     | Ok program ->
-       Lwt_main.run (exec_and_print arguments program)
+      let rv = Lwt_main.run (exec_and_print arguments program) in
+      exit rv
