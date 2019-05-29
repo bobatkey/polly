@@ -32,9 +32,12 @@ module Decision = struct
   type t = decision
 
   let pp fmt = function
-    | Permit         -> Format.pp_print_string fmt "PERMIT"
-    | Deny           -> Format.pp_print_string fmt "DENY"
-    | Not_applicable -> Format.pp_print_string fmt "NOT_APPLICABLE"
+    | Permit ->
+      Format.pp_print_string fmt "PERMIT"
+    | Deny ->
+      Format.pp_print_string fmt "DENY"
+    | Not_applicable ->
+      Format.pp_print_string fmt "NOT_APPLICABLE"
 end
 
 module Value = struct
@@ -186,6 +189,7 @@ let concat =
 let permit = lift (ret decision) Permit
 let deny   = lift (ret decision) Deny
 let not_applicable = lift (ret decision) Not_applicable
+
 let get_field =
   lift (json @-> string @-> ret_e json)
     (fun json fnm -> match json with
@@ -203,6 +207,7 @@ let get_integer =
   lift (json @-> ret_e integer)
     (function `Int i -> Ok i
             | _      -> Error "json: not an integer")
+
 let json_object =
   lift (jsonfield @*-> ret json)
     (fun fields -> `Assoc fields)
@@ -275,9 +280,14 @@ let rec eval_name (table : store) nm =
     log_with_time "Starting %s\n%!" nm >>= fun () ->
     let task = eval table expr in
     Hashtbl.replace table nm (Evaled task);
-    task >>= fun value ->
-    log_with_time "Finishing %s\n%!" nm >|= fun () ->
-    value
+    task
+    >>= function
+    | Ok _ as value ->
+      log_with_time "Finishing %s (OK)\n%!" nm >|= fun () ->
+      value
+    | Error e as value ->
+      log_with_time "Finishing %s (ERROR: %s)\n%!" nm e >|= fun () ->
+      value
 
 and eval table = function
   | E_name nm ->
