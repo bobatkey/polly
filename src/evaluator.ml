@@ -277,17 +277,21 @@ let rec eval_name (table : store) nm =
     t
   | Unevaled expr ->
     let open Lwt.Infix in
-    log_with_time "Starting %s\n%!" nm >>= fun () ->
-    let task = eval table expr in
+    let task =
+      log_with_time "Starting %s\n%!" nm
+      >>= fun () ->
+      eval table expr
+      >>= function
+      | Ok _ as value ->
+        log_with_time "Finishing %s (OK)\n%!" nm >|= fun () ->
+        value
+      | Error e as value ->
+        log_with_time "Finishing %s (ERROR: %s)\n%!" nm e >|= fun () ->
+        value
+    in
     Hashtbl.replace table nm (Evaled task);
     task
-    >>= function
-    | Ok _ as value ->
-      log_with_time "Finishing %s (OK)\n%!" nm >|= fun () ->
-      value
-    | Error e as value ->
-      log_with_time "Finishing %s (ERROR: %s)\n%!" nm e >|= fun () ->
-      value
+
 
 and eval table = function
   | E_name nm ->
