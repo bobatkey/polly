@@ -122,12 +122,13 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
 
   open R.Infix
 
-  let sort_mismatch sort1 sort2 =
-    R.errorf "sort mismatch: %s is not equal to %s"
+  let sort_mismatch loc sort1 sort2 =
+    R.errorf "sort mismatch: %s is not equal to %s at %a"
       (L.string_of_sort sort1)
       (L.string_of_sort sort2)
+      Location.pp loc
 
-  let unify sort1 sort2 =
+  let unify loc sort1 sort2 =
     match sort1, sort2 with
     | MV mv1, MV mv2 -> begin
         if Unionfind.equiv mv1 mv2 then
@@ -143,7 +144,7 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
             if L.Sort.equal s1 s2 then
               (Unionfind.union mv1 mv2; Ok ())
             else
-              sort_mismatch s1 s2
+              sort_mismatch loc s1 s2
       end
     | MV mv, Ba s1 | Ba s1, MV mv -> begin
         match Unionfind.find mv with
@@ -153,13 +154,13 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
           if L.Sort.equal s1 s2 then
             Ok ()
           else
-            sort_mismatch s1 s2
+            sort_mismatch loc s1 s2
       end
     | Ba s1, Ba s2 ->
       if L.Sort.equal s1 s2 then
         Ok ()
       else
-        sort_mismatch s1 s2
+        sort_mismatch loc s1 s2
 
   let rec check env = function
     | Ast.{ data = E_name nm; loc } -> begin
@@ -208,8 +209,9 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
       Error "too many parameters"
 
   and check_against env expr sort =
+    let loc = expr.Ast.loc in
     check env expr >>= fun (expr, sort') ->
-    unify sort' sort >>= fun () ->
+    unify loc sort' sort >>= fun () ->
     Ok expr
 
   and check_argument env argument sort =
