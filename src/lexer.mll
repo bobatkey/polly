@@ -32,7 +32,10 @@ and stringlit b = parse
 | '\"'                { (STRINGLIT (Buffer.contents b)) }
 | '\\''\"'            { Buffer.add_char b '\"';
                         stringlit b lexbuf }
-| [^'\\''\"']*        { Buffer.add_string b (Lexing.lexeme lexbuf);
+| '\n'                { Lexing.new_line lexbuf;
+                        Buffer.add_char b '\n';
+                        stringlit b lexbuf }
+| [^'\\''\"''\n']*    { Buffer.add_string b (Lexing.lexeme lexbuf);
                         stringlit b lexbuf }
 
 and comment = parse
