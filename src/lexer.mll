@@ -30,8 +30,8 @@ rule token = parse
 
 and stringlit b = parse
 | '\"'                { (STRINGLIT (Buffer.contents b)) }
-| '\\''\"'            { Buffer.add_char b '\"';
-                        stringlit b lexbuf }
+| '\\''\"'            { Buffer.add_char b '\"'; stringlit b lexbuf }
+| '\\''\\'            { Buffer.add_char b '\\'; stringlit b lexbuf }
 | '\n'                { Lexing.new_line lexbuf;
                         Buffer.add_char b '\n';
                         stringlit b lexbuf }
