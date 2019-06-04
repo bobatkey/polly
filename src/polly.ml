@@ -3,6 +3,9 @@ type constructor =
   | Deny
   | Not_applicable
 
+  | IsPermit
+  | IsDeny
+
   | Guard
   | FirstApplicable
 
@@ -72,6 +75,8 @@ module Language = struct
     | "PERMIT"           -> Ok Permit
     | "DENY"             -> Ok Deny
     | "NOT_APPLICABLE"   -> Ok Not_applicable
+    | "permits"          -> Ok IsPermit
+    | "denies"           -> Ok IsDeny
     | "guard"            -> Ok Guard
     | "first-applicable" -> Ok FirstApplicable
     | "concat"           -> Ok Concat
@@ -101,6 +106,11 @@ module Language = struct
       return (B Decision)
     | Not_applicable ->
       return (B Decision)
+
+    | IsPermit ->
+      B Decision @--> return (B Boolean)
+    | IsDeny ->
+      B Decision @--> return (B Boolean)
 
     | Guard ->
       B Boolean @--> B Decision @--> return (B Decision)

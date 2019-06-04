@@ -259,21 +259,63 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
         >>= fun sort ->
         Hashtbl.add env name sort;
         match defn with
-          | None ->
-             Hashtbl.add required name sort;
-             Ok ()
-          | Some expr ->
-             check_against env expr (Ba sort)
-             >>= fun expr ->
-             Hashtbl.add defined name expr;
-             Ok ()
+        | None ->
+          Hashtbl.add required name sort;
+          Ok ()
+        | Some expr ->
+          check_against env expr (Ba sort)
+          >>= fun expr ->
+          Hashtbl.add defined name expr;
+          Ok ()
     in
     R.iter check_decl program >>= fun () ->
     match Hashtbl.find env "main" with
-      | exception Not_found ->
-         Error "no 'main' defined"
-      | sort when not (L.Sort.equal sort main_sort) ->
-         Error "main has wrong sort"
-      | _ ->
-         Ok { defined; required }
+    | exception Not_found ->
+      Error "no 'main' defined"
+    | sort when not (L.Sort.equal sort main_sort) ->
+      Error "main has wrong sort"
+    | _ ->
+      Ok { defined; required }
+
+(*
+  let rec iter_names f = function
+    | E_name nm -> f nm
+    | E_cons { constructor=_; arguments } ->
+      List.iter (iter_argument_names f) arguments
+    | E_string _ | E_int _ ->
+      ()
+  and iter_argument_names f = function
+    | A_single e -> iter_names f e
+    | A_list es  -> List.iter (iter_names f) es
+
+  module As_graph = struct
+    type t = program
+
+    module V = struct
+      type t = string
+      let equal = String.equal
+      let hash = Hashtbl.hash
+      let compare = String.compare
+    end
+
+    module E = struct
+      type t = string * string
+      let src = fst
+      let dst = snd
+    end
+
+    let iter_vertex f program =
+      Hashtbl.iter (fun nm _ -> f nm) program.required;
+      Hashtbl.iter (fun nm _ -> f nm) program.defined
+
+    let iter_succ f program name =
+      if Hashtbl.mem program.required name then ()
+      else
+        let expr = Hashtbl.find program.defined name in
+        iter_names f expr
+
+    let iter_edges_e f program =
+      iter_vertex (fun v1 -> iter_succ (fun v2 -> f (v1, v2)) program v1) program
+  end
+*)
 end

@@ -190,6 +190,13 @@ let permit = lift (ret decision) Permit
 let deny   = lift (ret decision) Deny
 let not_applicable = lift (ret decision) Not_applicable
 
+let is_permit = lift (decision @-> ret boolean)
+    (function Permit -> true
+            | _      -> false)
+let is_deny = lift (decision @-> ret boolean)
+    (function Deny -> true
+            | _    -> false)
+
 let get_field =
   lift (json @-> string @-> ret_e json)
     (fun json fnm -> match json with
@@ -312,39 +319,38 @@ and eval table = function
   | E_cons { constructor=Not_applicable; arguments } ->
     not_applicable (eval table) arguments
 
-  | E_cons { constructor=Guard; arguments } ->
-    (match arguments with
-     | [A_single c; A_single d] ->
-       Lwt_result.bind
-         (eval table c)
-         (function
-           | Boolean true  -> eval table d
-           | Boolean false -> Lwt_result.return (Decision Not_applicable)
-           | _             -> Lwt.fail_with "type error")
-     | _ ->
-       Lwt.fail_with "syntax error: guard")
+  | E_cons { constructor=IsPermit; arguments } ->
+    is_permit (eval table) arguments
+  | E_cons { constructor=IsDeny; arguments } ->
+    is_deny (eval table) arguments
 
-  | E_cons { constructor=FirstApplicable; arguments} ->
-    (match arguments with
-     | [A_list exprs] ->
-       let rec get_first = function
-         | [] ->
-           Lwt_result.return (Decision Not_applicable)
-         | e::es ->
-           Lwt_result.bind
-             (eval table e)
-             (function
-               | Decision (Permit | Deny) as r ->
-                 Lwt_result.return r
-               | Decision Not_applicable ->
-                 get_first es
-               (* FIXME: handle errors specially? *)
-               | _ ->
-                 Lwt.fail_with "type error")
-       in
-       get_first exprs
-     | _ ->
-       Lwt.fail_with "syntax error: first-applicable")
+  | E_cons { constructor=Guard
+           ; arguments=[A_single c; A_single d] } ->
+    Lwt_result.bind
+      (eval table c)
+      (function
+        | Boolean true  -> eval table d
+        | Boolean false -> Lwt_result.return (Decision Not_applicable)
+        | _             -> Lwt.fail_with "type error")
+
+  | E_cons { constructor=FirstApplicable
+           ; arguments=[A_list exprs] } ->
+    let rec get_first = function
+      | [] ->
+        Lwt_result.return (Decision Not_applicable)
+      | e::es ->
+        Lwt_result.bind
+          (eval table e)
+          (function
+            | Decision (Permit | Deny) as r ->
+              Lwt_result.return r
+            | Decision Not_applicable ->
+              get_first es
+            (* FIXME: handle errors specially? *)
+            | _ ->
+              Lwt.fail_with "type error")
+    in
+    get_first exprs
 
   | E_cons { constructor=Concat; arguments } ->
     concat (eval table) arguments
@@ -376,58 +382,50 @@ and eval table = function
   | E_cons { constructor=Is_equal_Integer; arguments } ->
     eq_integer (eval table) arguments
 
-  | E_cons { constructor=If; arguments } ->
-    (match arguments with
-     | [A_single e_c; A_single e_thn; A_single e_els] ->
-       Lwt_result.bind (eval table e_c)
-         (function
-           | Boolean true ->
-             eval table e_thn
-           | Boolean false ->
-             eval table e_els
-           | _ ->
-             Lwt.return (Error "type error"))
-     | _ ->
-       Lwt.fail_with "syntax error: if")
+  | E_cons { constructor=If
+           ; arguments=[A_single e_c; A_single e_thn; A_single e_els] } ->
+    Lwt_result.bind (eval table e_c)
+      (function
+        | Boolean true ->
+          eval table e_thn
+        | Boolean false ->
+          eval table e_els
+        | _ ->
+          Lwt.return (Error "type error"))
 
-  | E_cons { constructor=Try; arguments } ->
-    (match arguments with
-     | [A_single body; A_single on_error] ->
-       Lwt.bind (eval table body)
-         (function
-           | Ok value ->
-             Lwt_result.return value
-           | Error _ ->
-             eval table on_error)
-     | _ ->
-       Lwt.fail_with "syntax error: try")
+  | E_cons { constructor=Try; arguments=[A_single body; A_single on_error] } ->
+    Lwt.bind (eval table body)
+      (function
+        | Ok value ->
+          Lwt_result.return value
+        | Error _ ->
+          eval table on_error)
 
   | E_cons { constructor=Error; arguments } ->
     error (eval table) arguments
 
-  | E_cons { constructor=First_successful; arguments } ->
-    (match arguments with
-     | [A_list exprs] ->
-       let rec try_loop = function
-         | [] ->
-           Lwt_result.fail "No successful result"
-         | expr::exprs ->
-           Lwt.bind (eval table expr)
-             (function
-               | Ok value ->
-                 Lwt_result.return value
-               | Error _ ->
-                 try_loop exprs)
-       in
-       try_loop exprs
-     | _ ->
-       Lwt.fail_with "syntax error: first-successful")
+  | E_cons { constructor=First_successful; arguments=[A_list exprs] } ->
+    let rec try_loop = function
+      | [] ->
+        Lwt_result.fail "No successful result"
+      | expr::exprs ->
+        Lwt.bind (eval table expr)
+          (function
+            | Ok value ->
+              Lwt_result.return value
+            | Error _ ->
+              try_loop exprs)
+    in
+    try_loop exprs
 
   | E_cons { constructor=Parse_json; arguments } ->
     parse_json (eval table) arguments
 
   | E_cons { constructor=Http_get; arguments } ->
     http_get (eval table) arguments
+
+  | E_cons _ ->
+    Lwt.fail_with "internal: syntax error"
 
 let eval args program =
   let table = Hashtbl.create 100 in
