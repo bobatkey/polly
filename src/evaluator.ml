@@ -430,7 +430,7 @@ and eval table = function
 let eval args program =
   let table = Hashtbl.create 100 in
   program.required |> Hashtbl.iter begin fun name sort ->
-    assert (Polly.Language.Sort.equal sort String);
+    assert (Polly.Language.Base_Sort.equal sort String);
     let value = String (List.assoc name args) in
     Hashtbl.add table name (Evaled (Lwt_result.return value))
   end;

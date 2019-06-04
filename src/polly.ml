@@ -32,7 +32,7 @@ type constructor =
 
   | Http_get
 
-type sort =
+type base_sort =
   | String
   | Integer
   | Json
@@ -42,9 +42,9 @@ type sort =
 
 module Language = struct
   type nonrec constructor = constructor
-  type nonrec sort = sort
+  type nonrec base_sort = base_sort
 
-  let sort_of_string = function
+  let base_sort_of_string = function
     | "string"     -> Ok String
     | "integer"    -> Ok Integer
     | "json"       -> Ok Json
@@ -53,7 +53,7 @@ module Language = struct
     | "boolean"    -> Ok Boolean
     | _            -> Error ()
 
-  let string_of_sort = function
+  let string_of_base_sort = function
     | String    -> "string"
     | Integer   -> "integer"
     | Json      -> "json"
@@ -61,11 +61,14 @@ module Language = struct
     | Decision  -> "decision"
     | Boolean   -> "boolean"
 
-  module Sort = struct
-    type t = sort
+  module Base_Sort = struct
+    type t = base_sort
 
-    let equal (x : sort) (y : sort) =
+    let equal (x : base_sort) (y : base_sort) =
       Stdlib.(=) x y
+
+    let pp fmt s =
+      Format.pp_print_string fmt (string_of_base_sort s)
   end
 
   let string_sort = String

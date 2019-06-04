@@ -30,29 +30,33 @@ end
 module type LANGUAGE = sig
   type constructor
 
-  type sort
+  type base_sort
 
-  val sort_of_string : string -> (sort, unit) result
+  val base_sort_of_string : string -> (base_sort, unit) result
 
-  val string_of_sort : sort -> string
+  val string_of_base_sort : base_sort -> string
 
-  val string_sort : sort
+  val string_sort : base_sort
 
-  val integer_sort : sort
+  val integer_sort : base_sort
 
   val constructor_of_string : string -> (constructor, unit) result
 
-  val sort_of_constructor : constructor -> sort constructor_sort
+  val sort_of_constructor : constructor -> base_sort constructor_sort
 
-  module Sort : sig
-    type t = sort
+  module Base_Sort : sig
+    type t = base_sort
 
     val equal : t -> t -> bool
+
+    val pp : Format.formatter -> t -> unit
   end
 end
 
 module type CHECKER = sig
   module L : LANGUAGE
+
+  type sort = L.base_sort
 
   type expr = private
     | E_name of string
@@ -68,14 +72,16 @@ module type CHECKER = sig
 
   type program =
     { defined  : (string, expr) Hashtbl.t
-    ; required : (string, L.sort) Hashtbl.t
+    ; required : (string, sort) Hashtbl.t
     }
 
-  val check_program : Ast.program -> L.sort -> (program, string) result
+  val check_program : Ast.program -> sort -> (program, string) result
 end
 
 module Make (L : LANGUAGE) : CHECKER with module L = L = struct
   module L = L
+
+  type sort = L.base_sort
 
   type identifier =
     string
@@ -94,12 +100,12 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
 
   type program =
     { defined  : (identifier, expr) Hashtbl.t
-    ; required : (identifier, L.sort) Hashtbl.t
+    ; required : (identifier, sort) Hashtbl.t
     }
 
   type inf_sort =
-    | MV of L.sort option Unionfind.equiv_class
-    | Ba of L.sort
+    | MV of sort option Unionfind.equiv_class
+    | Ba of sort
 
   let instantiate { arg_sorts; ret_sort } =
     let inst = Hashtbl.create 10 in
@@ -123,9 +129,9 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
   open R.Infix
 
   let sort_mismatch loc sort1 sort2 =
-    R.errorf "sort mismatch: %s is not equal to %s at %a"
-      (L.string_of_sort sort1)
-      (L.string_of_sort sort2)
+    R.errorf "sort mismatch: %a is not equal to %a at %a"
+      L.Base_Sort.pp sort1
+      L.Base_Sort.pp sort2
       Location.pp loc
 
   let unify loc sort1 sort2 =
@@ -141,7 +147,7 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
             Unionfind.set mv1 (Some s);
             Ok ()
           | Some s1, Some s2 ->
-            if L.Sort.equal s1 s2 then
+            if L.Base_Sort.equal s1 s2 then
               (Unionfind.union mv1 mv2; Ok ())
             else
               sort_mismatch loc s1 s2
@@ -151,13 +157,13 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
         | None ->
           Unionfind.set mv (Some s1); Ok ()
         | Some s2 ->
-          if L.Sort.equal s1 s2 then
+          if L.Base_Sort.equal s1 s2 then
             Ok ()
           else
             sort_mismatch loc s1 s2
       end
     | Ba s1, Ba s2 ->
-      if L.Sort.equal s1 s2 then
+      if L.Base_Sort.equal s1 s2 then
         Ok ()
       else
         sort_mismatch loc s1 s2
@@ -247,7 +253,7 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
       check_list env (expr::checked) exprs sort
 
   let check_sort Ast.{ ident; loc } =
-    match L.sort_of_string ident with
+    match L.base_sort_of_string ident with
     | Ok sort ->
        Ok sort
     | Error () ->
@@ -280,7 +286,7 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
     match Hashtbl.find env "main" with
     | exception Not_found ->
       Error "no 'main' defined"
-    | sort when not (L.Sort.equal sort main_sort) ->
+    | sort when not (L.Base_Sort.equal sort main_sort) ->
       Error "main has wrong sort"
     | _ ->
       Ok { defined; required }
@@ -300,7 +306,7 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
     type t = program
 
     module V = struct
-      type t = string
+      type t = stringx
       let equal = String.equal
       let hash = Hashtbl.hash
       let compare = String.compare
