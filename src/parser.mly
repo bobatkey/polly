@@ -9,9 +9,12 @@ open Ast
 %token LPAREN LBRACE
 %token RPAREN RBRACE
 %token COLON COMMA
+%token UNDERSCORE ARROW PIPE
 %token EOF
 
 %token KW_EXTERN KW_DEFINE KW_AS
+%token KW_TABLE KW_END
+
 
 %start <Ast.program> program
 
@@ -33,6 +36,10 @@ type_expr:
 expr:
   | constructor=LC_IDENT; arguments=nonempty_list(argument)
     { { data = E_cons { constructor; arguments }
+      ; loc  = Location.mk $startpos $endpos } }
+
+  | KW_TABLE; columns=separated_nonempty_list(COMMA,expr); rows=clause+; KW_END
+    { { data = E_table { columns; rows }
       ; loc  = Location.mk $startpos $endpos } }
 
   | e=base_expr
@@ -64,3 +71,15 @@ argument:
 
   | LBRACE; es=separated_list(COMMA,expr); RBRACE
     { A_list es }
+
+clause:
+  | PIPE; patterns=separated_nonempty_list(COMMA,pattern); ARROW; expr=expr
+    { { patterns; expr; location = Location.mk $startpos $endpos } }
+
+pattern:
+  | ident=UC_IDENT
+    { P_cons ident }
+  | UNDERSCORE
+    { P_any }
+  | LPAREN; pats=separated_nonempty_list(PIPE,pattern); RPAREN
+    { P_or pats }

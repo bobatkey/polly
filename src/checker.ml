@@ -193,6 +193,14 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
     | Ast.{ data = E_int i; loc = _ } ->
       Ok (E_int i, Ba L.integer_sort)
 
+    | Ast.{ data = E_table { columns = _; rows = _ }; loc = _ } ->
+      (* 1. check that all the column expressions have enumeration type
+            currently an enumeration type is decision or boolean.
+            Leave enumeration types implicit: use row types? *)
+      (* 2. check for each row that the pattern is well typed *)
+      (* 3. generate a sequence of if-then-elses in the output *)
+      failwith "FIXME: type check tables"
+
   and check_arguments env checked arguments sorts =
     match arguments, sorts with
     | [], [] ->

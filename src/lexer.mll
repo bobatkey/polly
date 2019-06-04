@@ -22,6 +22,11 @@ rule token = parse
 | "external"          { KW_EXTERN }
 | "define"            { KW_DEFINE }
 | "as"                { KW_AS }
+| "table"             { KW_TABLE }
+| "end"               { KW_END }
+| '|'                 { PIPE }
+| '_'                 { UNDERSCORE }
+| "->"                { ARROW }
 | lc_ident            { LC_IDENT (Lexing.lexeme lexbuf) }
 | uc_ident            { UC_IDENT (Lexing.lexeme lexbuf) }
 | "\""                { let b = Buffer.create 10 in stringlit b lexbuf }
