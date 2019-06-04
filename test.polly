@@ -40,9 +40,17 @@ define userId2 : integer as
 
 
 
+define policy : decision as
+  first-applicable
+    { guard (eq-string? title1 title2) PERMIT
+    , DENY
+    }
+
+
 define main : json as
   object { field "title1"  (json-string title1)
          , field "userId1" (json-number userId1)
          , field "title2"  (json-string title2)
          , field "userId2" (json-number userId2)
+         , field "decision" (json-string (if (permits policy) "PERMIT" "DENY"))
          }
