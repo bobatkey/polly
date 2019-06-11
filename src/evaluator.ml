@@ -354,11 +354,15 @@ and match_pattern pattern values =
     if String.equal cnm cnm'
     then Some values
     else None
-  | P_cons _, _::_ ->
-    None
   | P_any, _::values ->
     Some values
-  | (P_cons _ | P_any), [] ->
+  | P_string s, String s'::values ->
+    if String.equal s s'
+    then Some values
+    else None
+  | (P_cons _ | P_string _), _::_ ->
+    None
+  | (P_cons _ | P_any | P_string _), [] ->
     failwith "internal error: pattern, but no values"
   | P_seq (p::ps), values ->
     (match match_pattern p values with

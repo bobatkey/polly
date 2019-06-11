@@ -46,9 +46,10 @@ define decision : Permit | Deny | NotApplicable as
 
 define decision-as-string : string as
   table
-    decision
-  | Permit   -> "PERMIT"
-  | _        -> "DENY"
+    decision, title1
+  | _,        "title1"   -> "PERMIT"
+  | Permit,   "title1"   -> "PERMIT"
+  | _,        _          -> "DENY"
   end
 
 define main : json as

@@ -71,10 +71,11 @@ module type CHECKER = sig
     string
 
   type pattern =
-    | P_cons of constructor_symbol
+    | P_cons   of constructor_symbol
     | P_any
-    | P_seq  of pattern list
-    | P_or   of pattern list
+    | P_seq    of pattern list
+    | P_or     of pattern list
+    | P_string of string
 
   type expr =
     | E_string of string
@@ -114,10 +115,11 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
     string
 
   type pattern =
-    | P_cons of constructor_symbol
+    | P_cons   of constructor_symbol
     | P_any
-    | P_seq  of pattern list
-    | P_or   of pattern list
+    | P_seq    of pattern list
+    | P_or     of pattern list
+    | P_string of string
 
   type expr =
     | E_string of string
@@ -285,6 +287,14 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
         Location.pp loc
     | Ast.{ data = P_any; loc = _ }, _::cols ->
       Ok (P_any, cols)
+    | Ast.{ data = P_string str; loc }, sort::cols ->
+      (match sort with
+       | AbstrSort s when L.Base_Sort.equal s L.string_sort ->
+         Ok (P_string str, cols)
+       | AbstrSort _ | EnumSort _ ->
+         R.errorf
+           "Attempting to match a string literal against non string sort at %a"
+           Location.pp loc)
     | Ast.{ data = P_seq pats; loc = _ }, cols ->
       let rec seq accum pats cols =
         match pats with
