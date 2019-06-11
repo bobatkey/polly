@@ -1,45 +1,70 @@
-type sort =
-  { ident : string
-  ; loc   : Location.t
-  }
-
-(* FIXME: predicate patterns *)
-type pattern =
-  | P_cons of string
-  | P_any
-  | P_or of pattern list
-
-type expr_data =
-  | E_name   of string
-  | E_cons   of { constructor : string
-                ; arguments   : argument list
-                }
-  | E_string of string
-  | E_int    of int
-  | E_table  of { columns : expr list
-                ; rows    : clause list
-                }
-
-and expr =
-  { data : expr_data
+type 'a with_location =
+  { data : 'a
   ; loc  : Location.t
   }
 
-and argument =
-  | A_single of expr
-  | A_list   of expr list
+
+type sort_data =
+  | S_name of string
+  | S_enum of string list
+
+and sort =
+  sort_data with_location
+
+
+
+type constructor_symbol =
+  string
+
+type function_symbol =
+  string
+
+
+
+type pattern_data =
+  | P_cons of constructor_symbol
+  | P_any
+  | P_seq  of pattern list
+  | P_or   of pattern list
+
+and pattern =
+  pattern_data with_location
+
+
+
+type expr =
+  expr_data with_location
 
 and clause =
-  { patterns : pattern list
-  ; expr     : expr
-  ; location : Location.t
+  clause_data with_location
+
+and argument =
+  argument_data with_location
+
+and expr_data =
+  | E_int    of int
+  | E_string of string
+  | E_cons   of constructor_symbol
+  | E_name   of string
+  | E_func   of function_symbol * argument list
+  | E_table  of { cols : expr list; rows : clause list }
+
+and clause_data =
+  { pattern : pattern
+  ; expr    : expr
   }
 
-type entity =
-  { name : string
+and argument_data =
+  | A_one  of expr
+  | A_many of expr list
+
+
+
+type definition =
+  { name : string with_location
   ; sort : sort
   ; defn : expr option
   }
 
 type program =
-  entity list
+  definition with_location list

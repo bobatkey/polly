@@ -13,6 +13,14 @@ let rec iter f = function
   | []    -> Ok ()
   | x::xs -> f x >>= fun () -> iter f xs
 
+let rec traverse f = function
+  | [] ->
+    Ok []
+  | x::xs ->
+    f x           >>= fun y ->
+    traverse f xs >>= fun ys ->
+    Ok (y::ys)
+
 let map_err f = function
   | Ok _ as x -> x
   | Error e   -> Error (f e)

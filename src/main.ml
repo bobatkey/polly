@@ -45,7 +45,7 @@ let () =
          failwith "bad args"
   in
   let ast = read_file filename in
-  match Polly.Checker.check_program ast Polly.Json with
+  match Polly.Checker.check_program ast (Checker.AbstrSort Polly.Json) with
     | Error msg ->
       prerr_endline msg;
       exit 1

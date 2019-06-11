@@ -6,8 +6,8 @@ open Ast
 %token <string> UC_IDENT
 %token <int> INTLIT
 %token <string> STRINGLIT
-%token LPAREN LBRACE
-%token RPAREN RBRACE
+%token LBRACE RBRACE
+%token LPAREN RPAREN
 %token COLON COMMA
 %token UNDERSCORE ARROW PIPE
 %token EOF
@@ -23,63 +23,77 @@ open Ast
 program:
   | decls=list(declaration); EOF { decls }
 
-declaration:
-  | KW_EXTERN; name=LC_IDENT; COLON; sort=type_expr /* FIXME: attributes? */
-    { { name; sort; defn = None } }
-  | KW_DEFINE; name=LC_IDENT; COLON; sort=type_expr; KW_AS; expr=expr
-    { { name; sort; defn = Some expr } }
+name:
+  | nm=LC_IDENT
+    { { data = nm; loc = Location.mk $startpos $endpos } }
 
-type_expr:
+declaration:
+  | KW_EXTERN; name=name; COLON; sort=sort /* FIXME: attributes? */
+    { { data = { name; sort; defn = None }
+      ; loc = Location.mk $startpos $endpos } }
+  | KW_DEFINE; name=name; COLON; sort=sort; KW_AS; expr=expr
+    { { data = { name; sort; defn = Some expr }
+      ; loc  = Location.mk $startpos $endpos } }
+
+
+
+sort:
   | ident=LC_IDENT
-    { { ident; loc = Location.mk $startpos $endpos } }
+    { { data = S_name ident; loc = Location.mk $startpos $endpos } }
+  | c=UC_IDENT; cs=list(PIPE; e=UC_IDENT {e})
+    { { data = S_enum (c::cs); loc = Location.mk $startpos $endpos } }
 
 expr:
-  | constructor=LC_IDENT; arguments=nonempty_list(argument)
-    { { data = E_cons { constructor; arguments }
+  | fname=LC_IDENT; args=argument+
+    { { data = E_func (fname, args)
       ; loc  = Location.mk $startpos $endpos } }
-
-  | KW_TABLE; columns=separated_nonempty_list(COMMA,expr); rows=clause+; KW_END
-    { { data = E_table { columns; rows }
+  | KW_TABLE; cols=separated_nonempty_list(COMMA,expr); rows=clause+; KW_END
+    { { data = E_table { cols; rows }
       ; loc  = Location.mk $startpos $endpos } }
-
   | e=base_expr
     { e }
 
 base_expr:
-  | name=LC_IDENT
-    { { data = E_name name
-      ; loc  = Location.mk $startpos $endpos } }
-
-  | constructor=UC_IDENT
-    { { data = E_cons { constructor; arguments = [] }
-      ; loc  = Location.mk $startpos $endpos } }
-
-  | s=STRINGLIT
-    { { data = E_string s
-      ; loc  = Location.mk $startpos $endpos } }
-
   | i=INTLIT
     { { data = E_int i
       ; loc  = Location.mk $startpos $endpos } }
-
+  | s=STRINGLIT
+    { { data = E_string s
+      ; loc  = Location.mk $startpos $endpos } }
+  | cnm=UC_IDENT
+    { { data = E_cons cnm; loc = Location.mk $startpos $endpos } }
+  | ident=LC_IDENT
+    { { data = E_name ident
+      ; loc  = Location.mk $startpos $endpos } }
   | LPAREN; e=expr; RPAREN
     { e }
 
 argument:
   | e=base_expr
-    { A_single e }
+    { { data = A_one e
+      ; loc  = Location.mk $startpos $endpos } }
 
   | LBRACE; es=separated_list(COMMA,expr); RBRACE
-    { A_list es }
+    { { data = A_many es
+      ; loc  = Location.mk $startpos $endpos } }
 
 clause:
-  | PIPE; patterns=separated_nonempty_list(COMMA,pattern); ARROW; expr=expr
-    { { patterns; expr; location = Location.mk $startpos $endpos } }
+  | PIPE; pattern=pattern; ARROW; expr=expr
+    { { data = { pattern; expr }
+      ; loc  = Location.mk $startpos $endpos } }
 
 pattern:
+  | pats=separated_nonempty_list(COMMA,pattern1)
+    { { data = P_seq pats; loc = Location.mk $startpos $endpos } }
+
+pattern1:
+  | pats=separated_nonempty_list(PIPE,pattern0)
+    { { data = P_or pats; loc = Location.mk $startpos $endpos } }
+
+pattern0:
   | ident=UC_IDENT
-    { P_cons ident }
+    { { data = P_cons ident; loc = Location.mk $startpos $endpos } }
   | UNDERSCORE
-    { P_any }
-  | LPAREN; pats=separated_nonempty_list(PIPE,pattern); RPAREN
-    { P_or pats }
+    { { data = P_any; loc = Location.mk $startpos $endpos } }
+  | LPAREN; pat=pattern; RPAREN
+    { pat }

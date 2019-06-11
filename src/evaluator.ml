@@ -22,31 +22,30 @@ end = struct
     loop xs
 end
 
-module Decision = struct
-  module Type = struct
-    type decision = Permit | Deny | Not_applicable
-  end
-
-  include Type
-
-  type t = decision
-
-  let pp fmt = function
-    | Permit ->
-      Format.pp_print_string fmt "PERMIT"
-    | Deny ->
-      Format.pp_print_string fmt "DENY"
-    | Not_applicable ->
-      Format.pp_print_string fmt "NOT_APPLICABLE"
-end
+(* module Decision = struct
+ *   module Type = struct
+ *     type decision = Permit | Deny | Not_applicable
+ *   end
+ *
+ *   include Type
+ *
+ *   type t = decision
+ *
+ *   let pp fmt = function
+ *     | Permit ->
+ *       Format.pp_print_string fmt "PERMIT"
+ *     | Deny ->
+ *       Format.pp_print_string fmt "DENY"
+ *     | Not_applicable ->
+ *       Format.pp_print_string fmt "NOT_APPLICABLE"
+ * end *)
 
 module Value = struct
   module Type = struct
     type value =
       | String    of string
       | Integer   of int
-      | Boolean   of bool
-      | Decision  of Decision.t
+      | Symbol    of string
       | Json      of Yojson.Basic.t
       | JsonField of string * Yojson.Basic.t
   end
@@ -58,8 +57,7 @@ module Value = struct
   let pp fmt = function
     | String s   -> Format.fprintf fmt "String %S" s
     | Integer i  -> Format.fprintf fmt "Integer %d" i
-    | Boolean b  -> Format.fprintf fmt "Boolean %b" b
-    | Decision d -> Format.fprintf fmt "Decision %a" Decision.pp d
+    | Symbol c   -> Format.fprintf fmt "%s" c
     | Json j     -> Format.fprintf fmt "Json (%a)" Yojson.Basic.pp j
     | JsonField (n,j) ->
        Format.fprintf fmt "JsonField (%S, %a)"
@@ -68,7 +66,6 @@ module Value = struct
 end
 
 open Value.Type
-open Decision.Type
 open Polly.Checker
 
 type 'a io =
@@ -107,18 +104,13 @@ let json =
                | _      -> None)
   }
 
-let decision =
-  { embed   = (fun d -> Decision d)
-  ; project = (function
-               | Decision d -> Some d
-               | _          -> None)
-  }
-
 let boolean =
-  { embed   = (fun b -> Boolean b)
-  ; project = (function
-               | Boolean b -> Some b
-               | _         -> None)
+  { embed   = (fun b -> if b then Symbol "True" else Symbol "False")
+  ; project =
+      (function
+        | Symbol "True"  -> Some true
+        | Symbol "False" -> Some false
+        | _              -> None)
   }
 
 let jsonfield =
@@ -152,8 +144,8 @@ let rec traverse f = function
 let eval_args eval args =
   Lwt_result.map_p
     (function
-      | A_single arg -> Lwt_result.map (fun s -> `S s) (eval arg)
-      | A_list args  -> Lwt_result.map (fun l -> `L l) (Lwt_result.map_p eval args))
+      | A_one arg   -> Lwt_result.map (fun s -> `S s) (eval arg)
+      | A_many args -> Lwt_result.map (fun l -> `L l) (Lwt_result.map_p eval args))
     args
 
 let rec lift : type a. a spec -> a -> [`S of value|`L of value list] list -> (value,string) result Lwt.t =
@@ -185,17 +177,6 @@ let lift spec f eval arguments =
 let concat =
   lift (string @*-> ret string)
     (String.concat "")
-
-let permit = lift (ret decision) Permit
-let deny   = lift (ret decision) Deny
-let not_applicable = lift (ret decision) Not_applicable
-
-let is_permit = lift (decision @-> ret boolean)
-    (function Permit -> true
-            | _      -> false)
-let is_deny = lift (decision @-> ret boolean)
-    (function Deny -> true
-            | _    -> false)
 
 let get_field =
   lift (json @-> string @-> ret_e json)
@@ -310,127 +291,98 @@ and eval table = function
   | E_int i ->
     Lwt_result.return (Integer i)
 
-  | E_cons { constructor=Permit; arguments } ->
-    permit (eval table) arguments
+  | E_cons c ->
+    Lwt_result.return (Symbol c)
 
-  | E_cons { constructor=Deny; arguments } ->
-    deny (eval table) arguments
-
-  | E_cons { constructor=Not_applicable; arguments } ->
-    not_applicable (eval table) arguments
-
-  | E_cons { constructor=IsPermit; arguments } ->
-    is_permit (eval table) arguments
-  | E_cons { constructor=IsDeny; arguments } ->
-    is_deny (eval table) arguments
-
-  | E_cons { constructor=Guard
-           ; arguments=[A_single c; A_single d] } ->
-    Lwt_result.bind
-      (eval table c)
-      (function
-        | Boolean true  -> eval table d
-        | Boolean false -> Lwt_result.return (Decision Not_applicable)
-        | _             -> Lwt.fail_with "type error")
-
-  | E_cons { constructor=FirstApplicable
-           ; arguments=[A_list exprs] } ->
-    let rec get_first = function
-      | [] ->
-        Lwt_result.return (Decision Not_applicable)
-      | e::es ->
-        Lwt_result.bind
-          (eval table e)
-          (function
-            | Decision (Permit | Deny) as r ->
-              Lwt_result.return r
-            | Decision Not_applicable ->
-              get_first es
-            (* FIXME: handle errors specially? *)
-            | _ ->
-              Lwt.fail_with "type error")
-    in
-    get_first exprs
-
-  | E_cons { constructor=Concat; arguments } ->
+  | E_func (Concat, arguments) ->
     concat (eval table) arguments
 
-  | E_cons { constructor=GetField; arguments } ->
+  | E_func (GetField, arguments) ->
     get_field (eval table) arguments
 
-  | E_cons { constructor=GetString; arguments } ->
+  | E_func (GetString, arguments) ->
     get_string (eval table) arguments
 
-  | E_cons { constructor=GetInteger; arguments } ->
+  | E_func (GetInteger, arguments) ->
     get_integer (eval table) arguments
 
-  | E_cons { constructor=JsonObject; arguments } ->
+  | E_func (JsonObject, arguments) ->
     json_object (eval table) arguments
 
-  | E_cons { constructor=JsonField; arguments } ->
+  | E_func (JsonField, arguments) ->
     json_field (eval table) arguments
 
-  | E_cons { constructor=JsonString; arguments } ->
+  | E_func (JsonString, arguments) ->
     json_string (eval table) arguments
 
-  | E_cons { constructor=JsonNumber; arguments } ->
+  | E_func (JsonNumber, arguments) ->
     json_number (eval table) arguments
 
-  | E_cons { constructor=Is_equal_String; arguments } ->
+  | E_func (Is_equal_String, arguments) ->
     eq_string (eval table) arguments
 
-  | E_cons { constructor=Is_equal_Integer; arguments } ->
+  | E_func (Is_equal_Integer, arguments) ->
     eq_integer (eval table) arguments
 
-  | E_cons { constructor=If
-           ; arguments=[A_single e_c; A_single e_thn; A_single e_els] } ->
-    Lwt_result.bind (eval table e_c)
-      (function
-        | Boolean true ->
-          eval table e_thn
-        | Boolean false ->
-          eval table e_els
-        | _ ->
-          Lwt.return (Error "type error"))
-
-  | E_cons { constructor=Try; arguments=[A_single body; A_single on_error] } ->
-    Lwt.bind (eval table body)
-      (function
-        | Ok value ->
-          Lwt_result.return value
-        | Error _ ->
-          eval table on_error)
-
-  | E_cons { constructor=Error; arguments } ->
-    error (eval table) arguments
-
-  | E_cons { constructor=First_successful; arguments=[A_list exprs] } ->
-    let rec try_loop = function
-      | [] ->
-        Lwt_result.fail "No successful result"
-      | expr::exprs ->
-        Lwt.bind (eval table expr)
-          (function
-            | Ok value ->
-              Lwt_result.return value
-            | Error _ ->
-              try_loop exprs)
-    in
-    try_loop exprs
-
-  | E_cons { constructor=Parse_json; arguments } ->
+  | E_func (Parse_json, arguments) ->
     parse_json (eval table) arguments
 
-  | E_cons { constructor=Http_get; arguments } ->
+  | E_func (Http_get, arguments) ->
     http_get (eval table) arguments
 
-  | E_cons _ ->
-    Lwt.fail_with "internal: syntax error"
+  | E_table { cols; rows } ->
+    Lwt_result.bind
+      (Lwt_result.map_p (eval table) cols)
+      (fun values ->
+         eval_rows table values rows)
+
+and eval_rows table values = function
+  | [] ->
+    Lwt.fail_with "internal error: match failure"
+  | { pattern; expr }::rows ->
+    (match match_pattern pattern values with
+     | Some [] ->
+       eval table expr
+     | Some _ ->
+       Lwt.fail_with "internal error: pattern underrun"
+     | None ->
+       eval_rows table values rows)
+
+and match_pattern pattern values =
+  match pattern, values with
+  | P_cons cnm, Symbol cnm'::values ->
+    if String.equal cnm cnm'
+    then Some values
+    else None
+  | P_cons _, _::_ ->
+    None
+  | P_any, _::values ->
+    Some values
+  | (P_cons _ | P_any), [] ->
+    failwith "internal error: pattern, but no values"
+  | P_seq (p::ps), values ->
+    (match match_pattern p values with
+     | None ->
+       None
+     | Some values ->
+       match_pattern (P_seq ps) values)
+  | P_seq [], values ->
+    Some values
+  | P_or ps, values ->
+    let rec loop = function
+      | [] -> None
+      | p::ps ->
+        match match_pattern p values with
+        | None -> loop ps
+        | Some values -> Some values
+    in
+    loop ps
 
 let eval args program =
   let table = Hashtbl.create 100 in
-  program.required |> Hashtbl.iter begin fun name sort ->
-    assert (Polly.Language.Base_Sort.equal sort String);
+  program.required |> Hashtbl.iter begin fun name _sort ->
+    (* FIXME: checking the parameters ought to be done in the checker *)
+    (* assert (Polly.Language.Base_Sort.equal sort String); *)
     let value = String (List.assoc name args) in
     Hashtbl.add table name (Evaled (Lwt_result.return value))
   end;

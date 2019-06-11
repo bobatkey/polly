@@ -11,46 +11,50 @@ define request-result1 : json as
   parse-json (http-get (concat { base-uri, id1 }))
 
 define title1 : string as
-  first-successful
-    { get-string (get-field request-result1 "title")
-    , "backup title1"
-    }
+//  table
+    //get-string (get-field request-result1 "title")
+//  | value title -> title
+   "title1"
+//  end
 
-define userId1 : integer as
-  first-successful
-    { get-integer (get-field request-result1 "userId")
-    , -1
-    }
+define userId1 : integer as 23
+  //get-integer (get-field request-result1 "userId")
 
 
 define request-result2 : json as
   parse-json (http-get (concat { base-uri, id2 }))
 
 define title2 : string as
-  first-successful
-    { get-string (get-field request-result2 "title")
-    , "backup title2"
-    }
+  "title2" // get-string (get-field request-result2 "title")
 
 define userId2 : integer as
-  first-successful
-    { get-integer (get-field request-result2 "userId")
-    , -1
-    }
+  34//get-integer (get-field request-result2 "userId")
 
 
 
-define policy : decision as
-  first-applicable
-    { guard (eq-string? title1 title2) PERMIT
-    , DENY
-    }
+define decision : Permit | Deny | NotApplicable as
+  //first-applicable
+    //{
+  table
+    eq-string? title1 title2
+  | True                     -> Permit
+  | False                    -> Deny
+  end
+//    guard (eq-string? title1 title2) PERMIT
+   // , DENY
+  //  }
 
+define decision-as-string : string as
+  table
+    decision
+  | Permit   -> "PERMIT"
+  | _        -> "DENY"
+  end
 
 define main : json as
   object { field "title1"  (json-string title1)
          , field "userId1" (json-number userId1)
          , field "title2"  (json-string title2)
          , field "userId2" (json-number userId2)
-         , field "decision" (json-string (if (permits policy) "PERMIT" "DENY"))
+         , field "decision" (json-string decision-as-string)
          }

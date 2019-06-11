@@ -1,19 +1,23 @@
-type 'sort poly_sort =
+type constructor_name =
+  string
+
+module ConstrSet = Set.Make (String)
+
+type 'base sort =
+  | EnumSort  of ConstrSet.t
+  | AbstrSort of 'base
+
+type 'base poly_sort =
   | V of string
-  | B of 'sort
+  | B of 'base sort
 
-type 'sort arg_sort =
-  { multiplicity : [ `Single | `Multiple ]
-  ; sort         : 'sort poly_sort
-  }
-
-type 'sort constructor_sort =
-  { arg_sorts : 'sort arg_sort list
-  ; ret_sort  : 'sort poly_sort
+type 'base constructor_scheme =
+  { arg_sorts : [ `S of 'base sort | `M of 'base sort ] list
+  ; ret_sort  : 'base sort
   }
 
 module Sorts = struct
-  type 'sort t = 'sort constructor_sort
+  type 'base t = 'base constructor_scheme
 
   let return s =
     { arg_sorts = []
@@ -21,28 +25,26 @@ module Sorts = struct
     }
 
   let ( @--> ) sort c =
-    { c with arg_sorts = { multiplicity = `Single; sort } :: c.arg_sorts }
+    { c with arg_sorts = `S sort :: c.arg_sorts }
 
   let ( @*-> ) sort c =
-    { c with arg_sorts = { multiplicity = `Multiple; sort } :: c.arg_sorts }
+    { c with arg_sorts = `M sort :: c.arg_sorts }
 end
 
 module type LANGUAGE = sig
-  type constructor
+  type function_symbol
 
   type base_sort
 
   val base_sort_of_string : string -> (base_sort, unit) result
 
-  val string_of_base_sort : base_sort -> string
-
   val string_sort : base_sort
 
   val integer_sort : base_sort
 
-  val constructor_of_string : string -> (constructor, unit) result
+  val function_of_string : string -> (function_symbol, unit) result
 
-  val sort_of_constructor : constructor -> base_sort constructor_sort
+  val function_scheme : function_symbol -> base_sort constructor_scheme
 
   module Base_Sort : sig
     type t = base_sort
@@ -56,21 +58,42 @@ end
 module type CHECKER = sig
   module L : LANGUAGE
 
-  type sort = L.base_sort
+  type base_sort =
+    L.base_sort
 
-  type expr = private
-    | E_name of string
-    | E_cons of { constructor : L.constructor
-                ; arguments   : argument list
-                }
+  type nonrec sort =
+    base_sort sort
+
+  type constructor_symbol =
+    string
+
+  type identifier =
+    string
+
+  type pattern =
+    | P_cons of constructor_symbol
+    | P_any
+    | P_seq  of pattern list
+    | P_or   of pattern list
+
+  type expr =
     | E_string of string
     | E_int    of int
+    | E_name   of string
+    | E_cons   of string
+    | E_func   of L.function_symbol * argument list
+    | E_table  of { cols : expr list; rows : clause list }
 
-  and argument = private
-    | A_single of expr
-    | A_list   of expr list
+  and clause =
+    { pattern : pattern
+    ; expr    : expr
+    }
 
-  type program =
+  and argument =
+    | A_one  of expr
+    | A_many of expr list
+
+  type program = private
     { defined  : (string, expr) Hashtbl.t
     ; required : (string, sort) Hashtbl.t
     }
@@ -81,193 +104,223 @@ end
 module Make (L : LANGUAGE) : CHECKER with module L = L = struct
   module L = L
 
-  type sort = L.base_sort
+  type base_sort = L.base_sort
+  type nonrec sort = base_sort sort
+
+  type constructor_symbol =
+    string
 
   type identifier =
     string
 
+  type pattern =
+    | P_cons of constructor_symbol
+    | P_any
+    | P_seq  of pattern list
+    | P_or   of pattern list
+
   type expr =
-    | E_name   of identifier
-    | E_cons   of { constructor : L.constructor
-                  ; arguments   : argument list
-                  }
     | E_string of string
     | E_int    of int
+    | E_name   of string
+    | E_cons   of string
+    | E_func   of L.function_symbol * argument list
+    | E_table  of { cols : expr list; rows : clause list }
 
-  and argument =
-    | A_single of expr
-    | A_list   of expr list
-
-  type program =
-    { defined  : (identifier, expr) Hashtbl.t
-    ; required : (identifier, sort) Hashtbl.t
+  and clause =
+    { pattern : pattern
+    ; expr    : expr
     }
 
-  type inf_sort =
-    | MV of sort option Unionfind.equiv_class
-    | Ba of sort
+  and argument =
+    | A_one  of expr
+    | A_many of expr list
 
-  let instantiate { arg_sorts; ret_sort } =
-    let inst = Hashtbl.create 10 in
-    let inst_sort = function
-      | V nm ->
-        (try MV (Hashtbl.find inst nm)
-         with Not_found ->
-           let c = Unionfind.make_class None in
-           Hashtbl.add inst nm c;
-           MV c)
-      | B s ->
-        Ba s
-    in
-    let inst_arg_sort { multiplicity; sort } =
-      (multiplicity, inst_sort sort)
-    in
-    let arg_sorts = List.map inst_arg_sort arg_sorts in
-    let ret_sort  = inst_sort ret_sort in
-    arg_sorts, ret_sort
+  type program =
+    { defined  : (string, expr) Hashtbl.t
+    ; required : (string, sort) Hashtbl.t
+    }
 
   open R.Infix
 
-  let sort_mismatch loc sort1 sort2 =
-    R.errorf "sort mismatch: %a is not equal to %a at %a"
-      L.Base_Sort.pp sort1
-      L.Base_Sort.pp sort2
-      Location.pp loc
-
-  let unify loc sort1 sort2 =
-    match sort1, sort2 with
-    | MV mv1, MV mv2 -> begin
-        if Unionfind.equiv mv1 mv2 then
-          Ok ()
-        else match Unionfind.find mv1, Unionfind.find mv2 with
-          | None, None ->
-            Unionfind.union mv1 mv2; Ok ()
-          | None, Some s | Some s, None ->
-            Unionfind.union mv1 mv2;
-            Unionfind.set mv1 (Some s);
-            Ok ()
-          | Some s1, Some s2 ->
-            if L.Base_Sort.equal s1 s2 then
-              (Unionfind.union mv1 mv2; Ok ())
-            else
-              sort_mismatch loc s1 s2
-      end
-    | MV mv, Ba s1 | Ba s1, MV mv -> begin
-        match Unionfind.find mv with
-        | None ->
-          Unionfind.set mv (Some s1); Ok ()
-        | Some s2 ->
-          if L.Base_Sort.equal s1 s2 then
-            Ok ()
-          else
-            sort_mismatch loc s1 s2
-      end
-    | Ba s1, Ba s2 ->
-      if L.Base_Sort.equal s1 s2 then
-        Ok ()
+  let compare_types loc expected computed =
+    match expected, computed with
+    | AbstrSort s1, AbstrSort s2 ->
+      if L.Base_Sort.equal s1 s2 then Ok ()
       else
-        sort_mismatch loc s1 s2
+        R.errorf "Expecting sort '%a', but expression has sort '%a' at %a"
+          L.Base_Sort.pp s1
+          L.Base_Sort.pp s2
+          Location.pp    loc
+    | EnumSort cs1, EnumSort cs2 ->
+      if ConstrSet.equal cs1 cs2 then Ok ()
+      else
+        R.errorf
+          "Expected constructors and possible constructors do not match at %a"
+          Location.pp loc
+    | AbstrSort _, EnumSort _
+    | EnumSort _,  AbstrSort _ ->
+      R.errorf
+        "Sort mismatch at %a"
+        Location.pp loc
 
-  let rec check env = function
-    | Ast.{ data = E_name nm; loc } -> begin
-        match Hashtbl.find env nm with
-        | exception Not_found ->
-          R.errorf "Name '%s' not defined at %a"
-            nm
-            Location.pp loc
-        | sort ->
-          Ok (E_name nm, Ba sort)
-      end
+  let check_sort = function
+    | Ast.{ data = S_name nm; loc } ->
+      (match L.base_sort_of_string nm with
+       | Error () ->
+         R.errorf "Named sort '%s' not recognised at %a"
+           nm
+           Location.pp loc
+       | Ok sort ->
+         Ok (AbstrSort sort))
+    | Ast.{ data = S_enum constrs; loc } ->
+      let rec build s = function
+        | [] -> Ok (EnumSort s)
+        | c::cs ->
+          if ConstrSet.mem c s then
+            R.errorf "Duplicate constructor name '%s' at %a"
+              c
+              Location.pp loc
+          else
+            build (ConstrSet.add c s) cs
+      in
+      build ConstrSet.empty constrs
 
-    | Ast.{ data = E_cons { constructor; arguments }; loc } -> begin
-        match L.constructor_of_string constructor with
-        | Error () ->
-          R.errorf "Symbol '%s' not understood at %a"
-            constructor
-            Location.pp loc
-        | Ok constructor ->
-          let arg_sorts, ret_sort =
-            instantiate (L.sort_of_constructor constructor)
-          in
-          check_arguments env [] arguments arg_sorts >>= fun arguments ->
-          Ok (E_cons { constructor; arguments }, ret_sort)
-      end
+  let rec check env expected = function
+    | Ast.{ data = E_cons cnm; loc } ->
+      (match expected with
+       | EnumSort constrs when ConstrSet.mem cnm constrs ->
+         Ok (E_cons cnm)
+       | _ ->
+         R.errorf
+           "This constructor does not fit into expected sort at %a"
+           Location.pp loc)
+    | Ast.{ data = E_table { cols; rows }; loc = _ } ->
+      R.traverse (synthesise env) cols
+      >>= fun col_infos ->
+      let cols, col_sorts = List.split col_infos in
+      R.traverse (check_clause env col_sorts expected) rows
+      >>= fun rows ->
+      Ok (E_table { cols; rows })
+    | expr ->
+      synthesise env expr
+      >>= fun (checked_expr, computed) ->
+      compare_types expr.Ast.loc expected computed
+      >>= fun () ->
+      Ok checked_expr
 
-    | Ast.{ data = E_string s; loc = _ } ->
-      Ok (E_string s, Ba L.string_sort)
+  and check_clause env col_sorts expected = function
+    | Ast.{ data = { pattern; expr }; loc = _ } ->
+      (let loc = pattern.Ast.loc in
+       check_pattern pattern col_sorts >>= fun (pattern, rcols) ->
+       match rcols with
+       | [] ->
+         check env expected expr >>= fun expr ->
+         Ok { pattern; expr }
+       | _::_ ->
+         R.errorf "Pattern arity mismatch at %a"
+           Location.pp loc)
 
+  and synthesise env = function
+    | Ast.{ data = E_cons _; loc } ->
+      R.errorf "Unable to synthesise type for constructor at %a"
+        Location.pp loc
     | Ast.{ data = E_int i; loc = _ } ->
-      Ok (E_int i, Ba L.integer_sort)
+      Ok (E_int i, AbstrSort L.integer_sort)
+    | Ast.{ data = E_string s; loc = _ } ->
+      Ok (E_string s, AbstrSort L.string_sort)
+    | Ast.{ data = E_name nm; loc } ->
+      (match Hashtbl.find env nm with
+       | exception Not_found ->
+         R.errorf "Name '%s' not defined at %a"
+           nm
+           Location.pp loc
+       | sort ->
+         Ok (E_name nm, sort))
+    | Ast.{ data = E_func (fnm, arguments); loc } ->
+      (match L.function_of_string fnm with
+       | Error () ->
+         R.errorf
+           "Function symbol '%s' not understood at %a"
+           fnm
+           Location.pp loc
+       | Ok fsymbol ->
+         let {arg_sorts; ret_sort} = L.function_scheme fsymbol in
+         check_arguments env [] arguments arg_sorts
+         >>= fun arguments ->
+         Ok (E_func (fsymbol, arguments), ret_sort))
+    | Ast.{ data = E_table { cols = _; rows = _ }; loc } ->
+      R.errorf
+        "Not synthesising from a table at %a"
+        Location.pp loc
 
-    | Ast.{ data = E_table { columns = _; rows = _ }; loc = _ } ->
-      (* 1. check that all the column expressions have enumeration type
-            currently an enumeration type is decision or boolean.
-            Leave enumeration types implicit: use row types? *)
-      (* 2. check for each row that the pattern is well typed *)
-      (* 3. generate a sequence of if-then-elses in the output *)
-      failwith "FIXME: type check tables"
-
-  and check_arguments env checked arguments sorts =
-    match arguments, sorts with
+  and check_arguments env accum args sorts =
+    match args, sorts with
     | [], [] ->
-      Ok (List.rev checked)
+      Ok (List.rev accum)
+    | Ast.{ data = A_one expr; loc = _ }::args, `S sort::sorts ->
+      check env sort expr >>= fun expr ->
+      check_arguments env (A_one expr::accum) args sorts
+    | Ast.{ data = A_many exprs; loc = _ }::args, `M sort::sorts ->
+      R.traverse (check env sort) exprs >>= fun exprs ->
+      check_arguments env (A_many exprs::accum) args sorts
+    | _ ->
+      R.errorf "Argument mismatch"
 
-    | arg::arguments, sort::sorts ->
-      check_argument env arg sort >>= fun arg ->
-      check_arguments env (arg::checked) arguments sorts
-
-    | [], _::_ ->
-      Error "not enough parameters"
-
-    | _::_, [] ->
-      Error "too many parameters"
-
-  and check_against env expr sort =
-    let loc = expr.Ast.loc in
-    check env expr >>= fun (expr, sort') ->
-    unify loc sort' sort >>= fun () ->
-    Ok expr
-
-  and check_argument env argument sort =
-    match argument, sort with
-    | Ast.A_single e, (`Single, sort) ->
-      check_against env e sort >>= fun e ->
-      Ok (A_single e)
-
-    | Ast.A_list es, (`Multiple, sort) ->
-      check_list env [] es sort >>= fun es ->
-      Ok (A_list es)
-
-    | Ast.A_single _, (`Multiple, _) ->
-      Error "multi-parameter expected"
-
-    | Ast.A_list _, (`Single, _) ->
-      Error "single parameter expected"
-
-  and check_list env checked exprs sort =
-    match exprs with
-    | [] ->
-      Ok (List.rev checked)
-    | expr::exprs ->
-      check_against env expr sort >>= fun expr ->
-      check_list env (expr::checked) exprs sort
-
-  let check_sort Ast.{ ident; loc } =
-    match L.base_sort_of_string ident with
-    | Ok sort ->
-       Ok sort
-    | Error () ->
-       R.errorf "Sort name '%s' not recognised at %a"
-         ident
-         Location.pp loc
+  and check_pattern pat cols =
+    match pat, cols with
+    | _, [] ->
+      R.errorf "Nothing to match!"
+    | Ast.{ data = P_cons cnm; loc }, EnumSort cnms::cols ->
+      if ConstrSet.mem cnm cnms then
+        Ok (P_cons cnm, cols)
+      else
+        R.errorf "Pattern '%s' will never match at %a"
+          cnm
+          Location.pp loc
+    | Ast.{ data = P_cons cnm; loc }, AbstrSort _::_ ->
+      R.errorf
+        "Attempting to match constructor '%s' against abstract type at %a"
+        cnm
+        Location.pp loc
+    | Ast.{ data = P_any; loc = _ }, _::cols ->
+      Ok (P_any, cols)
+    | Ast.{ data = P_seq pats; loc = _ }, cols ->
+      let rec seq accum pats cols =
+        match pats with
+        | [] ->
+          Ok (P_seq (List.rev accum), cols)
+        | pat::pats ->
+          check_pattern pat cols >>= fun (p, cols) ->
+          seq (p::accum) pats cols
+      in
+      seq [] pats cols
+    | Ast.{ data = P_or []; loc = _}, _ ->
+      failwith "internal error: empty or pattern"
+    | Ast.{ data = P_or (pat::pats); loc }, cols ->
+      check_pattern pat cols >>= fun (p, rcols) ->
+      let rec check_pats accum = function
+        | [] ->
+          Ok (P_or (p::List.rev accum), rcols)
+        | pat::pats ->
+          check_pattern pat cols >>= fun (p, rcols') ->
+          if rcols = rcols' then
+            check_pats (p::accum) pats
+          else
+            R.errorf "Pattern length mismatch in 'or' pattern at %a"
+              Location.pp loc
+      in
+      check_pats [] pats
 
   let check_program program main_sort =
     let defined  = Hashtbl.create 20 in
     let required = Hashtbl.create 20 in
     let env      = Hashtbl.create 20 in
-    let check_decl Ast.{ name; sort; defn } =
+    let check_decl Ast.{ data = { name = { data = name; loc }; sort; defn }; _ } =
       if Hashtbl.mem env name then
-        R.errorf "Name '%s' defined multiple times" name
+        R.errorf "Name '%s' defined multiple times at %a"
+          name
+          Location.pp loc
       else
         check_sort sort
         >>= fun sort ->
@@ -277,7 +330,7 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
           Hashtbl.add required name sort;
           Ok ()
         | Some expr ->
-          check_against env expr (Ba sort)
+          check env sort expr
           >>= fun expr ->
           Hashtbl.add defined name expr;
           Ok ()
@@ -286,50 +339,8 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
     match Hashtbl.find env "main" with
     | exception Not_found ->
       Error "no 'main' defined"
-    | sort when not (L.Base_Sort.equal sort main_sort) ->
-      Error "main has wrong sort"
-    | _ ->
+    | sort ->
+      (* FIXME: get the right location *)
+      compare_types Location.generated main_sort sort >>= fun () ->
       Ok { defined; required }
-
-(*
-  let rec iter_names f = function
-    | E_name nm -> f nm
-    | E_cons { constructor=_; arguments } ->
-      List.iter (iter_argument_names f) arguments
-    | E_string _ | E_int _ ->
-      ()
-  and iter_argument_names f = function
-    | A_single e -> iter_names f e
-    | A_list es  -> List.iter (iter_names f) es
-
-  module As_graph = struct
-    type t = program
-
-    module V = struct
-      type t = stringx
-      let equal = String.equal
-      let hash = Hashtbl.hash
-      let compare = String.compare
-    end
-
-    module E = struct
-      type t = string * string
-      let src = fst
-      let dst = snd
-    end
-
-    let iter_vertex f program =
-      Hashtbl.iter (fun nm _ -> f nm) program.required;
-      Hashtbl.iter (fun nm _ -> f nm) program.defined
-
-    let iter_succ f program name =
-      if Hashtbl.mem program.required name then ()
-      else
-        let expr = Hashtbl.find program.defined name in
-        iter_names f expr
-
-    let iter_edges_e f program =
-      iter_vertex (fun v1 -> iter_succ (fun v2 -> f (v1, v2)) program v1) program
-  end
-*)
 end

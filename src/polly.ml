@@ -1,15 +1,7 @@
-type constructor =
-  | Permit
-  | Deny
-  | Not_applicable
-
-  | IsPermit
-  | IsDeny
-
-  | Guard
-  | FirstApplicable
-
+type function_symbol =
   | Concat
+
+  | Parse_json
 
   | GetField
   | GetString
@@ -23,13 +15,6 @@ type constructor =
   | Is_equal_Integer
   | Is_equal_String
 
-  | If
-  | Try
-  | Error
-  | First_successful
-
-  | Parse_json
-
   | Http_get
 
 type base_sort =
@@ -37,11 +22,9 @@ type base_sort =
   | Integer
   | Json
   | JsonField
-  | Decision
-  | Boolean
 
 module Language = struct
-  type nonrec constructor = constructor
+  type nonrec function_symbol = function_symbol
   type nonrec base_sort = base_sort
 
   let base_sort_of_string = function
@@ -49,8 +32,6 @@ module Language = struct
     | "integer"    -> Ok Integer
     | "json"       -> Ok Json
     | "json-field" -> Ok JsonField
-    | "decision"   -> Ok Decision
-    | "boolean"    -> Ok Boolean
     | _            -> Error ()
 
   let string_of_base_sort = function
@@ -58,8 +39,6 @@ module Language = struct
     | Integer   -> "integer"
     | Json      -> "json"
     | JsonField -> "json-field"
-    | Decision  -> "decision"
-    | Boolean   -> "boolean"
 
   module Base_Sort = struct
     type t = base_sort
@@ -74,14 +53,7 @@ module Language = struct
   let string_sort = String
   let integer_sort = Integer
 
-  let constructor_of_string = function
-    | "PERMIT"           -> Ok Permit
-    | "DENY"             -> Ok Deny
-    | "NOT_APPLICABLE"   -> Ok Not_applicable
-    | "permits"          -> Ok IsPermit
-    | "denies"           -> Ok IsDeny
-    | "guard"            -> Ok Guard
-    | "first-applicable" -> Ok FirstApplicable
+  let function_of_string = function
     | "concat"           -> Ok Concat
     | "get-field"        -> Ok GetField
     | "get-string"       -> Ok GetString
@@ -92,69 +64,53 @@ module Language = struct
     | "json-number"      -> Ok JsonNumber
     | "eq-string?"       -> Ok Is_equal_String
     | "eq-integer?"      -> Ok Is_equal_Integer
-    | "if"               -> Ok If
-    | "try"              -> Ok Try
-    | "error"            -> Ok Error
-    | "first-successful" -> Ok First_successful
     | "parse-json"       -> Ok Parse_json
     | "http-get"         -> Ok Http_get
     | _                  -> Error ()
 
-  let sort_of_constructor constructor =
+  let decision =
+    Checker.(EnumSort (ConstrSet.of_list [ "Permit"; "Deny"; "Not-applicable" ]))
+  let boolean =
+    Checker.(EnumSort (ConstrSet.of_list [ "True"; "False" ]))
+  let string =
+    Checker.(AbstrSort String)
+  let integer =
+    Checker.(AbstrSort Integer)
+  let json =
+    Checker.(AbstrSort Json)
+  let json_field =
+    Checker.(AbstrSort JsonField)
+
+  let function_scheme constructor =
     let open Checker.Sorts in
     match constructor with
-    | Permit ->
-      return (B Decision)
-    | Deny ->
-      return (B Decision)
-    | Not_applicable ->
-      return (B Decision)
-
-    | IsPermit ->
-      B Decision @--> return (B Boolean)
-    | IsDeny ->
-      B Decision @--> return (B Boolean)
-
-    | Guard ->
-      B Boolean @--> B Decision @--> return (B Decision)
-    | FirstApplicable ->
-      B Decision @*-> return (B Decision)
     | Concat ->
-      B String @*-> return (B String)
+      string @*-> return string
     | GetField ->
-      B Json @--> B String @--> return (B Json)
+      json @--> string @--> return json
     | GetString ->
-      B Json @--> return (B String)
+      json @--> return string
     | GetInteger ->
-      B Json @--> return (B Integer)
+      json @--> return integer
 
     | JsonObject ->
-      B JsonField @*-> return (B Json)
+      json_field @*-> return json
     | JsonField ->
-      B String @--> B Json @--> return (B JsonField)
+      string @--> json @--> return json_field
     | JsonString ->
-      B String @--> return (B Json)
+      string @--> return json
     | JsonNumber ->
-      B Integer @--> return (B Json)
+      integer @--> return json
 
     | Is_equal_String ->
-      B String @--> B String @--> return (B Boolean)
+      string @--> string @--> return boolean
     | Is_equal_Integer ->
-      B Integer @--> B Integer @--> return (B Boolean)
-
-    | If ->
-      B Boolean @--> V "a" @--> V "a" @--> return (V "a")
-    | Try ->
-      V "a" @--> V "a" @--> return (V "a")
-    | Error ->
-      B String @--> return (V "a")
-    | First_successful ->
-      V "a" @*-> return (V "a")
+      integer @--> integer @--> return boolean
 
     | Parse_json ->
-      B String @--> return (B Json)
+      string @--> return json
     | Http_get ->
-      B String @--> return (B String)
+      string @--> return string
 end
 
 module Checker = Checker.Make (Language)
