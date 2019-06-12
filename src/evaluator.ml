@@ -355,6 +355,15 @@ and eval_casetree values = function
           eval_casetree values next)
      | _ ->
        invalid_arg "Matching on the wrong sort of thing")
+  | StrSwitch (i, clauses, next) ->
+    (match values.(i) with
+     | String cnm ->
+       (try
+          eval_casetree values (List.assoc cnm clauses)
+        with Not_found ->
+          eval_casetree values next)
+     | _ ->
+       invalid_arg "Matching on the wrong sort of thing")
 
 let eval args program =
   let table = Hashtbl.create 100 in

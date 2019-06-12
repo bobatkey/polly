@@ -71,8 +71,9 @@ module type CHECKER = sig
     string
 
   type case_tree =
-    | Execute of int
-    | Switch  of int * (string * case_tree) list * case_tree
+    | Execute   of int
+    | Switch    of int * (string * case_tree) list * case_tree
+    | StrSwitch of int * (string * case_tree) list * case_tree
     | Fail
 
   type expr =
@@ -113,8 +114,9 @@ module Make (L : LANGUAGE) (* : CHECKER with module L = L*)  = struct
     | P_string of string
 
   type case_tree =
-    | Execute of int
-    | Switch  of int * (string * case_tree) list * case_tree
+    | Execute   of int
+    | Switch    of int * (string * case_tree) list * case_tree
+    | StrSwitch of int * (string * case_tree) list * case_tree
     | Fail
 
   type expr =
@@ -161,22 +163,38 @@ module Make (L : LANGUAGE) (* : CHECKER with module L = L*)  = struct
       R.errorf
         "Sort mismatch at %a"
         Location.pp loc
-
-  (*
+(*
   type pat_type =
     | Columns of pat_type list
     | Column  of sort
+*)
+(* matrix
+       v1, v2, v3
+   | ( A,  B
+     | B,  C), D -> foop
+*)
 
+  (*
   let rec check_and_flatten_pattern pattern pat_sort =
     match pattern, pat_sort with
     | Ast.{ data = P_cons cnm; loc = _ }, Column (EnumSort cnms)
       when ConstrSet.mem cnm cnms ->
       Ok [[P_cons cnm]]
-    | Ast.{ data = P_cons cnm; loc }, Column _sort ->
-      R.errorf "Pattern '%s' ill-typed at %a"
-        cnm
+    | Ast.{ data = P_string str; loc = _ }, Column (AbstrSort sort)
+      when L.Base_Sort.equal sort L.string_sort ->
+      Ok [[P_string str]]
+    | Ast.{ data = P_any; loc = _ }, Column _ ->
+      Ok [[P_any]]
+    | Ast.{ data = P_cons _ | P_string _ | P_any; loc }, _ ->
+      R.errorf "Pattern ill-typed at %a"
         Location.pp loc
-    | Ast.{ data = P_cons
+    | Ast.{ data = P_seq ps; loc }, Columns cols ->
+      let rec loop ps cols =
+        match ps, cols with
+        | [], [] -> Ok [[]]
+        | p::ps, c::cs ->
+          check_and_flatten_pattern p cs >>= fun p' ->
+          loop ps cs >>= fun
 *)
 
   (* FIXME: This should not auto flatten sequences: cols is either a
@@ -227,6 +245,7 @@ module Make (L : LANGUAGE) (* : CHECKER with module L = L*)  = struct
             else R.errorf "Pattern length mismatch at %a" Location.pp loc
         in
         loop [p1] ps
+(*
       | Ast.{ data = P_bind (pat, _nm); loc } ->
         check_and_flatten_pattern cols i pat >>= fun (ps, j) ->
         if j = i + 1 then
@@ -235,8 +254,19 @@ module Make (L : LANGUAGE) (* : CHECKER with module L = L*)  = struct
         else
           R.errorf "Attempting to bind multiple values at %a"
             Location.pp loc
+*)
 
   module ConstrMap = struct
+    include Map.Make (String)
+    let find k m = match find k m with
+      | exception Not_found -> []
+      | l -> l
+    let add k v m =
+      let vs = find k m in
+      add k (v::vs) m
+  end
+
+  module StringLitMap = struct
     include Map.Make (String)
     let find k m = match find k m with
       | exception Not_found -> []
@@ -249,6 +279,8 @@ module Make (L : LANGUAGE) (* : CHECKER with module L = L*)  = struct
   let rec chunk = function
     | [] ->
       []
+    | ([], _)::_ ->
+      invalid_arg "internal: empty pattern"
     | (P_any::_, _)::_ as patterns ->
       let rec gather accum = function
         | ([], _)::_ ->
@@ -275,10 +307,23 @@ module Make (L : LANGUAGE) (* : CHECKER with module L = L*)  = struct
           `ConsSwitch clauses::chunk patterns
       in
       gather ConstrMap.empty patterns
-    | ((P_string _)::_, _)::_ ->
-      failwith "FIXME: implement string matching"
-    | ([], _)::_ ->
-      invalid_arg "internal: empty pattern3"
+    | ((P_string _)::_, _)::_ as patterns ->
+      let rec gather accum = function
+        | ([], _)::_ ->
+          invalid_arg "internal: empty pattern3"
+        | (P_string str::pats, i)::patterns ->
+          gather (StringLitMap.add str (pats, i) accum) patterns
+        | ([] | (_::_, _)::_) as patterns ->
+          let clauses =
+            StringLitMap.fold
+              (fun str patterns ->
+                 List.cons (str, List.rev patterns))
+              accum
+              []
+          in
+          `StrSwitch clauses::chunk patterns
+      in
+      gather StringLitMap.empty patterns
 
   let rec compile_patterns n i patterns =
     Printf.eprintf "compile_patterns %d %d\n%!" n i;
@@ -299,6 +344,14 @@ module Make (L : LANGUAGE) (* : CHECKER with module L = L*)  = struct
               clauses
           in
           fun x -> Switch (i, clauses, x)
+        | `StrSwitch clauses ->
+          let clauses =
+            List.map
+              (fun (str,patterns) ->
+                 str, compile_patterns n (i+1) patterns Fail)
+              clauses
+          in
+          fun x -> StrSwitch (i, clauses, x)
       end
 
   let compile_patterns n patterns =

@@ -26,7 +26,6 @@ type pattern_data =
   | P_seq    of pattern list
   | P_or     of pattern list
   | P_string of string
-  | P_bind   of pattern * string
 
 and pattern =
   pattern_data with_location

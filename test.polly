@@ -11,9 +11,10 @@ define request-result1 : json as
   parse-json (http-get (concat { base-uri, id1 }))
 
 define title1 : string as
-//  table
-    //get-string (get-field request-result1 "title")
-//  | value title -> title
+  // table
+  //   get-string (get-field request-result1 "title")
+  // | #success as x -> x
+  // | #error        ->
    "title1"
 //  end
 
@@ -25,28 +26,24 @@ define request-result2 : json as
   parse-json (http-get (concat { base-uri, id2 }))
 
 define title2 : string as
-  "title2" // get-string (get-field request-result2 "title")
+  get-string (get-field request-result2 "title")
 
 define userId2 : integer as
-  34//get-integer (get-field request-result2 "userId")
+  get-integer (get-field request-result2 "userId")
 
 
 
 define decision : Permit | Deny | NotApplicable as
-  //first-applicable
-    //{
   table
     eq-string? title1 title2
   | True                     -> Permit
   | False                    -> Deny
   end
-//    guard (eq-string? title1 title2) PERMIT
-   // , DENY
-  //  }
 
 define decision-as-string : string as
   table
     decision, title1
+  | _,        ("foop" | "title1")   -> "NAARGLE"
   | Permit,   _          -> "PERMIT"
   | _,        _          -> "DENY"
   end
