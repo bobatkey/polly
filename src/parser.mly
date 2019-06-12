@@ -14,6 +14,7 @@ open Ast
 
 %token KW_EXTERN KW_DEFINE KW_AS
 %token KW_TABLE KW_END
+%token KW_IS KW_SORT
 
 
 %start <Ast.program> program
@@ -29,12 +30,14 @@ name:
 
 declaration:
   | KW_EXTERN; name=name; COLON; sort=sort /* FIXME: attributes? */
-    { { data = { name; sort; defn = None }
+    { { data = Val { name; sort; defn = None }
       ; loc = Location.mk $startpos $endpos } }
   | KW_DEFINE; name=name; COLON; sort=sort; KW_AS; expr=expr
-    { { data = { name; sort; defn = Some expr }
+    { { data = Val { name; sort; defn = Some expr }
       ; loc  = Location.mk $startpos $endpos } }
-
+  | KW_SORT; name=name; KW_IS; constrs=separated_nonempty_list(PIPE,UC_IDENT)
+    { { data = Sort { name; constrs }
+      ; loc  = Location.mk $startpos $endpos } }
 
 
 sort:

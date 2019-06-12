@@ -378,29 +378,6 @@ module Make (L : LANGUAGE) (* : CHECKER with module L = L*)  = struct
     with an example of a term that cannot be matched. *)
 
 
-  let check_sort = function
-    | Ast.{ data = S_name nm; loc } ->
-      (match L.base_sort_of_string nm with
-       | Error () ->
-         R.errorf "Named sort '%s' not recognised at %a"
-           nm
-           Location.pp loc
-       | Ok sort ->
-         Ok (AbstrSort sort))
-    | Ast.{ data = S_enum constrs; loc } ->
-      let rec build s = function
-        | [] ->
-          Ok (EnumSort s)
-        | c::cs ->
-          if ConstrSet.mem c s then
-            R.errorf "Duplicate constructor name '%s' at %a"
-              c
-              Location.pp loc
-          else
-            build (ConstrSet.add c s) cs
-      in
-      build ConstrSet.empty constrs
-
   let rec check env expected = function
     | Ast.{ data = E_cons cnm; loc } ->
       (match expected with
@@ -492,29 +469,71 @@ module Make (L : LANGUAGE) (* : CHECKER with module L = L*)  = struct
     | _ ->
       R.errorf "Argument mismatch"
 
+  let enumsort loc =
+    let rec build s = function
+      | [] ->
+        Ok (EnumSort s)
+      | c::cs ->
+        if ConstrSet.mem c s then
+          R.errorf "Duplicate constructor name '%s' at %a"
+            c
+            Location.pp loc
+        else
+          build (ConstrSet.add c s) cs
+    in
+    build ConstrSet.empty
+
+  let check_sort sorts = function
+    | Ast.{ data = S_name nm; loc } ->
+      (match Hashtbl.find sorts nm with
+       | exception Not_found ->
+         (match L.base_sort_of_string nm with
+          | Error () ->
+            R.errorf "Named sort '%s' not recognised at %a"
+              nm
+              Location.pp loc
+          | Ok sort ->
+            Ok (AbstrSort sort))
+       | sort ->
+         Ok sort)
+    | Ast.{ data = S_enum constrs; loc } ->
+      enumsort loc constrs
+
+
 
   let check_program program main_sort =
     let defined  = Hashtbl.create 20 in
+    let sorts    = Hashtbl.create 20 in
     let required = Hashtbl.create 20 in
     let env      = Hashtbl.create 20 in
-    let check_decl Ast.{ data = { name = { data = name; loc }; sort; defn }; _ } =
-      if Hashtbl.mem env name then
-        R.errorf "Name '%s' defined multiple times at %a"
-          name
-          Location.pp loc
-      else
-        check_sort sort
-        >>= fun sort ->
-        Hashtbl.add env name sort;
-        match defn with
-        | None ->
-          Hashtbl.add required name sort;
-          Ok ()
-        | Some expr ->
-          check env sort expr
-          >>= fun expr ->
-          Hashtbl.add defined name expr;
-          Ok ()
+    let check_decl = function
+      | Ast.{ data = Val { name = { data = name; loc }; sort; defn }; _ } ->
+        (if Hashtbl.mem env name then
+          R.errorf "Name '%s' defined multiple times at %a"
+            name
+            Location.pp loc
+        else
+          check_sort sorts sort
+          >>= fun sort ->
+          Hashtbl.add env name sort;
+          match defn with
+          | None ->
+            Hashtbl.add required name sort;
+            Ok ()
+          | Some expr ->
+            check env sort expr
+            >>= fun expr ->
+            Hashtbl.add defined name expr;
+            Ok ())
+      | Ast.{ data = Sort { name = { data = name; loc }; constrs }; loc = loc2 } ->
+        (if Hashtbl.mem sorts name then
+           R.errorf "Sort name '%s' defined for a second time at %a"
+             name
+             Location.pp loc
+         else
+           enumsort loc2 constrs >>= fun sort ->
+           Hashtbl.add sorts name sort;
+           Ok ())
     in
     R.iter check_decl program >>= fun () ->
     match Hashtbl.find env "main" with

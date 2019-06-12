@@ -60,10 +60,15 @@ and argument_data =
 
 
 type definition =
-  { name : string with_location
-  ; sort : sort
-  ; defn : expr option
-  }
+  | Val of
+      { name : string with_location
+      ; sort : sort
+      ; defn : expr option
+      }
+  | Sort of
+      { name    : string with_location
+      ; constrs : string list
+      }
 
 type program =
   definition with_location list

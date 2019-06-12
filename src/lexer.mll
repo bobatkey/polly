@@ -24,6 +24,8 @@ rule token = parse
 | "as"                { KW_AS }
 | "table"             { KW_TABLE }
 | "end"               { KW_END }
+| "sort"              { KW_SORT }
+| "is"                { KW_IS }
 | '|'                 { PIPE }
 | '_'                 { UNDERSCORE }
 | "->"                { ARROW }
