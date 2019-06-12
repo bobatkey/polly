@@ -22,24 +22,6 @@ end = struct
     loop xs
 end
 
-(* module Decision = struct
- *   module Type = struct
- *     type decision = Permit | Deny | Not_applicable
- *   end
- *
- *   include Type
- *
- *   type t = decision
- *
- *   let pp fmt = function
- *     | Permit ->
- *       Format.pp_print_string fmt "PERMIT"
- *     | Deny ->
- *       Format.pp_print_string fmt "DENY"
- *     | Not_applicable ->
- *       Format.pp_print_string fmt "NOT_APPLICABLE"
- * end *)
-
 module Value = struct
   module Type = struct
     type value =

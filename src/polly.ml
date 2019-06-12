@@ -68,8 +68,6 @@ module Language = struct
     | "http-get"         -> Ok Http_get
     | _                  -> Error ()
 
-  let decision =
-    Checker.(EnumSort (ConstrSet.of_list [ "Permit"; "Deny"; "Not-applicable" ]))
   let boolean =
     Checker.(EnumSort (ConstrSet.of_list [ "True"; "False" ]))
   let string =
