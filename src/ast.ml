@@ -20,17 +20,16 @@ type function_symbol =
   string
 
 
-
 type pattern_data =
   | P_cons   of constructor_symbol
   | P_any
   | P_seq    of pattern list
   | P_or     of pattern list
   | P_string of string
+  | P_bind   of pattern * string
 
 and pattern =
   pattern_data with_location
-
 
 
 type expr =

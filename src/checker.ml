@@ -70,12 +70,10 @@ module type CHECKER = sig
   type identifier =
     string
 
-  type pattern =
-    | P_cons   of constructor_symbol
-    | P_any
-    | P_seq    of pattern list
-    | P_or     of pattern list
-    | P_string of string
+  type case_tree =
+    | Execute of int
+    | Switch  of int * (string * case_tree) list * case_tree
+    | Fail
 
   type expr =
     | E_string of string
@@ -83,12 +81,7 @@ module type CHECKER = sig
     | E_name   of string
     | E_cons   of string
     | E_func   of L.function_symbol * argument list
-    | E_table  of { cols : expr list; rows : clause list }
-
-  and clause =
-    { pattern : pattern
-    ; expr    : expr
-    }
+    | E_table  of { cols : expr list; tree : case_tree; cases : expr list }
 
   and argument =
     | A_one  of expr
@@ -102,7 +95,7 @@ module type CHECKER = sig
   val check_program : Ast.program -> sort -> (program, string) result
 end
 
-module Make (L : LANGUAGE) : CHECKER with module L = L = struct
+module Make (L : LANGUAGE) (* : CHECKER with module L = L*)  = struct
   module L = L
 
   type base_sort = L.base_sort
@@ -114,12 +107,15 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
   type identifier =
     string
 
-  type pattern =
+  type pattern_bit =
     | P_cons   of constructor_symbol
     | P_any
-    | P_seq    of pattern list
-    | P_or     of pattern list
     | P_string of string
+
+  type case_tree =
+    | Execute of int
+    | Switch  of int * (string * case_tree) list * case_tree
+    | Fail
 
   type expr =
     | E_string of string
@@ -127,12 +123,7 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
     | E_name   of string
     | E_cons   of string
     | E_func   of L.function_symbol * argument list
-    | E_table  of { cols : expr list; rows : clause list }
-
-  and clause =
-    { pattern : pattern
-    ; expr    : expr
-    }
+    | E_table  of { cols : expr list; tree : case_tree; cases : expr list }
 
   and argument =
     | A_one  of expr
@@ -144,6 +135,11 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
     }
 
   open R.Infix
+
+  let append_all xss yss =
+    xss
+    |> List.map (fun xs -> yss |> List.map (fun ys -> xs @ ys))
+    |> List.concat
 
   let compare_types loc expected computed =
     match expected, computed with
@@ -166,6 +162,169 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
         "Sort mismatch at %a"
         Location.pp loc
 
+  (*
+  type pat_type =
+    | Columns of pat_type list
+    | Column  of sort
+
+  let rec check_and_flatten_pattern pattern pat_sort =
+    match pattern, pat_sort with
+    | Ast.{ data = P_cons cnm; loc = _ }, Column (EnumSort cnms)
+      when ConstrSet.mem cnm cnms ->
+      Ok [[P_cons cnm]]
+    | Ast.{ data = P_cons cnm; loc }, Column _sort ->
+      R.errorf "Pattern '%s' ill-typed at %a"
+        cnm
+        Location.pp loc
+    | Ast.{ data = P_cons
+*)
+
+  (* FIXME: This should not auto flatten sequences: cols is either a
+     single sort, or a tuple of sorts. There is no left over cols. *)
+  let rec check_and_flatten_pattern cols i pattern =
+    if i >= Array.length cols then
+      R.errorf "Pattern too long at %a" Location.pp pattern.Ast.loc
+    else
+      match pattern with
+      | Ast.{ data = P_cons cnm; loc } ->
+        (match cols.(i) with
+         | EnumSort cnms when ConstrSet.mem cnm cnms ->
+           Ok ([[P_cons cnm]], i+1)
+         | _sort ->
+           R.errorf "Type error in pattern at %a"
+             Location.pp loc)
+      | Ast.{ data = P_any; loc = _ } ->
+        Ok ([[P_any]], i+1)
+      | Ast.{ data = P_string str; loc } ->
+        (match cols.(i) with
+         | AbstrSort sort when L.Base_Sort.equal sort L.string_sort ->
+           Ok ([[P_string str]], i+1)
+         | _sort ->
+           R.errorf "Type error in pattern at %a"
+             Location.pp loc)
+      | Ast.{ data = P_seq ps; loc = _ } ->
+        let rec loop i = function
+          | [] ->
+            Ok ([[]], i)
+          | p::ps ->
+            check_and_flatten_pattern cols i p
+            >>= fun (p1, j) ->
+            loop j ps
+            >>= fun (p2, k) ->
+            Ok (append_all p1 p2, k)
+        in
+        loop i ps
+      | Ast.{ data = P_or []; loc = _ } ->
+        failwith "internal error: empty or pattern"
+      | Ast.{ data = P_or (p::ps); loc } ->
+        check_and_flatten_pattern cols i p >>= fun (p1, j) ->
+        let rec loop accum = function
+          | [] ->
+            Ok (List.concat (List.rev accum), j)
+          | p::ps ->
+            check_and_flatten_pattern cols i p >>= fun (p, j') ->
+            if j = j' then loop (p::accum) ps
+            else R.errorf "Pattern length mismatch at %a" Location.pp loc
+        in
+        loop [p1] ps
+      | Ast.{ data = P_bind (pat, _nm); loc } ->
+        check_and_flatten_pattern cols i pat >>= fun (ps, j) ->
+        if j = i + 1 then
+          (* FIXME: actually do the binding, and remember the type *)
+          Ok (ps, j)
+        else
+          R.errorf "Attempting to bind multiple values at %a"
+            Location.pp loc
+
+  module ConstrMap = struct
+    include Map.Make (String)
+    let find k m = match find k m with
+      | exception Not_found -> []
+      | l -> l
+    let add k v m =
+      let vs = find k m in
+      add k (v::vs) m
+  end
+
+  let rec chunk = function
+    | [] ->
+      []
+    | (P_any::_, _)::_ as patterns ->
+      let rec gather accum = function
+        | ([], _)::_ ->
+          invalid_arg "internal: empty pattern1"
+        | (P_any::pats, i)::patterns ->
+          gather ((pats, i)::accum) patterns
+        | ([] | (_::_, _)::_) as patterns ->
+          `Shift (List.rev accum)::chunk patterns
+      in
+      gather [] patterns
+    | ((P_cons _)::_, _)::_ as patterns ->
+      let rec gather accum = function
+        | ([], _)::_ ->
+          invalid_arg "internal: empty pattern2"
+        | (P_cons cnm::pats, i)::patterns ->
+          gather (ConstrMap.add cnm (pats, i) accum) patterns
+        | ([] | (_::_, _)::_) as patterns ->
+          let clauses =
+            ConstrMap.fold
+              (fun cnm patterns -> List.cons (cnm, List.rev patterns))
+              accum
+              []
+          in
+          `ConsSwitch clauses::chunk patterns
+      in
+      gather ConstrMap.empty patterns
+    | ((P_string _)::_, _)::_ ->
+      failwith "FIXME: implement string matching"
+    | ([], _)::_ ->
+      invalid_arg "internal: empty pattern3"
+
+  let rec compile_patterns n i patterns =
+    Printf.eprintf "compile_patterns %d %d\n%!" n i;
+    assert (List.for_all (fun (p,_) -> List.length p = n-i) patterns);
+    match n-i, patterns with
+    | _, []         -> fun x -> x
+    | 0, ([], i)::_ -> fun _ -> Execute i
+    | 0, _          -> invalid_arg "missing pattern"
+    | _, patterns ->
+      chunk patterns |> List.fold_right begin function
+        | `Shift patterns ->
+          compile_patterns n (i+1) patterns
+        | `ConsSwitch clauses ->
+          let clauses =
+            List.map
+              (fun (cnm,patterns) ->
+                 cnm, compile_patterns n (i+1) patterns Fail)
+              clauses
+          in
+          fun x -> Switch (i, clauses, x)
+      end
+
+  let compile_patterns n patterns =
+    compile_patterns n 0 patterns Fail
+
+  (* Augustsson-style matching (also does coverage checking)
+     - Phrased as a problem    x covering {p1, p2, ...}
+     - Has Conor muddled this up with Coquand's pattern matching for dependent
+       types?
+     - Seems similar to Maranget's thing too, but his has a way of not necessarily
+       expanding each wildcard test case, and allows starting with an arbitrary
+       pattern on the LHS.
+
+        x  covering { (_, true), (true, false) }
+    =>  (x,y) covering { (_, true), (true, false) }
+        [ SPLIT ON y ]
+    =>  (x,true) covering { (_, true) }  [DONE]
+        (x,false) covering { (true, false) }
+        [ SPLIT ON x ] (violates left-to-right evaluation!?)
+    =>  (true,false) covering { (true, false) } [ DONE ]
+        (false,false) covering { }  [ FAILED ]
+
+    This enables exhaustivity checking by checking to see whether we ever end up
+    with an example of a term that cannot be matched. *)
+
+
   let check_sort = function
     | Ast.{ data = S_name nm; loc } ->
       (match L.base_sort_of_string nm with
@@ -177,7 +336,8 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
          Ok (AbstrSort sort))
     | Ast.{ data = S_enum constrs; loc } ->
       let rec build s = function
-        | [] -> Ok (EnumSort s)
+        | [] ->
+          Ok (EnumSort s)
         | c::cs ->
           if ConstrSet.mem c s then
             R.errorf "Duplicate constructor name '%s' at %a"
@@ -201,9 +361,19 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
       R.traverse (synthesise env) cols
       >>= fun col_infos ->
       let cols, col_sorts = List.split col_infos in
+      let col_sorts = Array.of_list col_sorts in
+      (* FIXME: coverage checking *)
       R.traverse (check_clause env col_sorts expected) rows
       >>= fun rows ->
-      Ok (E_table { cols; rows })
+      let cases = List.map snd rows in
+      let patterns =
+        List.concat @@
+        List.mapi (fun i (patterns, _) ->
+            List.map (fun p -> (p,i)) patterns) @@
+        rows
+      in
+      let tree = compile_patterns (Array.length col_sorts) patterns in
+      Ok (E_table { cols; tree; cases })
     | expr ->
       synthesise env expr
       >>= fun (checked_expr, computed) ->
@@ -211,17 +381,17 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
       >>= fun () ->
       Ok checked_expr
 
-  and check_clause env col_sorts expected = function
+  and check_clause table col_sorts expected = function
     | Ast.{ data = { pattern; expr }; loc = _ } ->
-      (let loc = pattern.Ast.loc in
-       check_pattern pattern col_sorts >>= fun (pattern, rcols) ->
-       match rcols with
-       | [] ->
-         check env expected expr >>= fun expr ->
-         Ok { pattern; expr }
-       | _::_ ->
-         R.errorf "Pattern arity mismatch at %a"
-           Location.pp loc)
+      let loc = pattern.Ast.loc in
+      check_and_flatten_pattern col_sorts 0 pattern >>= fun (patterns, i) ->
+      if i <> Array.length col_sorts then
+        R.errorf
+          "Pattern does not match all columns at %a"
+          Location.pp loc
+      else
+        check table expected expr >>= fun expr ->
+        Ok (patterns, expr)
 
   and synthesise env = function
     | Ast.{ data = E_cons _; loc } ->
@@ -269,58 +439,6 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
     | _ ->
       R.errorf "Argument mismatch"
 
-  and check_pattern pat cols =
-    match pat, cols with
-    | _, [] ->
-      R.errorf "Nothing to match!"
-    | Ast.{ data = P_cons cnm; loc }, EnumSort cnms::cols ->
-      if ConstrSet.mem cnm cnms then
-        Ok (P_cons cnm, cols)
-      else
-        R.errorf "Pattern '%s' will never match at %a"
-          cnm
-          Location.pp loc
-    | Ast.{ data = P_cons cnm; loc }, AbstrSort _::_ ->
-      R.errorf
-        "Attempting to match constructor '%s' against abstract type at %a"
-        cnm
-        Location.pp loc
-    | Ast.{ data = P_any; loc = _ }, _::cols ->
-      Ok (P_any, cols)
-    | Ast.{ data = P_string str; loc }, sort::cols ->
-      (match sort with
-       | AbstrSort s when L.Base_Sort.equal s L.string_sort ->
-         Ok (P_string str, cols)
-       | AbstrSort _ | EnumSort _ ->
-         R.errorf
-           "Attempting to match a string literal against non string sort at %a"
-           Location.pp loc)
-    | Ast.{ data = P_seq pats; loc = _ }, cols ->
-      let rec seq accum pats cols =
-        match pats with
-        | [] ->
-          Ok (P_seq (List.rev accum), cols)
-        | pat::pats ->
-          check_pattern pat cols >>= fun (p, cols) ->
-          seq (p::accum) pats cols
-      in
-      seq [] pats cols
-    | Ast.{ data = P_or []; loc = _}, _ ->
-      failwith "internal error: empty or pattern"
-    | Ast.{ data = P_or (pat::pats); loc }, cols ->
-      check_pattern pat cols >>= fun (p, rcols) ->
-      let rec check_pats accum = function
-        | [] ->
-          Ok (P_or (p::List.rev accum), rcols)
-        | pat::pats ->
-          check_pattern pat cols >>= fun (p, rcols') ->
-          if rcols = rcols' then
-            check_pats (p::accum) pats
-          else
-            R.errorf "Pattern length mismatch in 'or' pattern at %a"
-              Location.pp loc
-      in
-      check_pats [] pats
 
   let check_program program main_sort =
     let defined  = Hashtbl.create 20 in

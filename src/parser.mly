@@ -83,12 +83,22 @@ clause:
       ; loc  = Location.mk $startpos $endpos } }
 
 pattern:
-  | pats=separated_nonempty_list(COMMA,pattern1)
-    { { data = P_seq pats; loc = Location.mk $startpos $endpos } }
+  | pat=pattern2; PIPE; pats=separated_nonempty_list(PIPE,pattern2)
+    { { data = P_or (pat::pats); loc = Location.mk $startpos $endpos } }
+  | pat=pattern2
+    { pat }
+
+pattern2:
+  | pat=pattern1; COMMA; pats=separated_nonempty_list(COMMA,pattern1)
+    { { data = P_seq (pat::pats); loc = Location.mk $startpos $endpos } }
+  | pat=pattern1
+    { pat }
 
 pattern1:
-  | pats=separated_nonempty_list(PIPE,pattern0)
-    { { data = P_or pats; loc = Location.mk $startpos $endpos } }
+/*  | pat=pattern0; KW_AS; nm=LC_IDENT
+    { { data = P_bind (pat, nm); loc = Location.mk $startpos $endpos } }*/
+  | pat=pattern0
+    { pat }
 
 pattern0:
   | ident=UC_IDENT

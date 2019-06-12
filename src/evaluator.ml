@@ -330,57 +330,31 @@ and eval table = function
   | E_func (Http_get, arguments) ->
     http_get (eval table) arguments
 
-  | E_table { cols; rows } ->
+  | E_table { cols; tree; cases } ->
     Lwt_result.bind
       (Lwt_result.map_p (eval table) cols)
       (fun values ->
-         eval_rows table values rows)
+         let values = Array.of_list values in
+         match eval_casetree values tree with
+         | exception Failure msg ->
+           Lwt.fail_with msg
+         | case_index ->
+           eval table (List.nth cases case_index))
 
-and eval_rows table values = function
-  | [] ->
-    Lwt.fail_with "internal error: match failure"
-  | { pattern; expr }::rows ->
-    (match match_pattern pattern values with
-     | Some [] ->
-       eval table expr
-     | Some _ ->
-       Lwt.fail_with "internal error: pattern underrun"
-     | None ->
-       eval_rows table values rows)
-
-and match_pattern pattern values =
-  match pattern, values with
-  | P_cons cnm, Symbol cnm'::values ->
-    if String.equal cnm cnm'
-    then Some values
-    else None
-  | P_any, _::values ->
-    Some values
-  | P_string s, String s'::values ->
-    if String.equal s s'
-    then Some values
-    else None
-  | (P_cons _ | P_string _), _::_ ->
-    None
-  | (P_cons _ | P_any | P_string _), [] ->
-    failwith "internal error: pattern, but no values"
-  | P_seq (p::ps), values ->
-    (match match_pattern p values with
-     | None ->
-       None
-     | Some values ->
-       match_pattern (P_seq ps) values)
-  | P_seq [], values ->
-    Some values
-  | P_or ps, values ->
-    let rec loop = function
-      | [] -> None
-      | p::ps ->
-        match match_pattern p values with
-        | None -> loop ps
-        | Some values -> Some values
-    in
-    loop ps
+and eval_casetree values = function
+  | Execute case_index ->
+    case_index
+  | Fail ->
+    raise Not_found
+  | Switch (i, clauses, next) ->
+    (match values.(i) with
+     | Symbol cnm ->
+       (try
+          eval_casetree values (List.assoc cnm clauses)
+        with Not_found ->
+          eval_casetree values next)
+     | _ ->
+       invalid_arg "Matching on the wrong sort of thing")
 
 let eval args program =
   let table = Hashtbl.create 100 in

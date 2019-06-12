@@ -47,8 +47,7 @@ define decision : Permit | Deny | NotApplicable as
 define decision-as-string : string as
   table
     decision, title1
-  | _,        "title1"   -> "PERMIT"
-  | Permit,   "title1"   -> "PERMIT"
+  | Permit,   _          -> "PERMIT"
   | _,        _          -> "DENY"
   end
 
