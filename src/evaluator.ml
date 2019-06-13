@@ -239,6 +239,33 @@ let log_with_time fmt =
   let time = Ptime_clock.now () in
   Lwt_io.eprintf ("%s: " ^^ fmt) (Ptime.to_rfc3339 ~frac_s:5 time)
 
+let rec eval_casetree values k = function
+  | Execute case_index ->
+    k (Some case_index)
+  | Fail ->
+    raise Not_found
+  | Unit ->
+    k None
+  | Switch ([i], clauses) ->
+    (match values.(i) with
+     | Symbol cnm ->
+       eval_casetree values k (List.assoc cnm clauses)
+     | _ ->
+       invalid_arg "Matching on the wrong sort of thing")
+  | StrSwitch ([i], clauses) ->
+    (match values.(i) with
+     | String cnm ->
+       eval_casetree values k (List.assoc cnm clauses)
+     | _ ->
+       invalid_arg "Matching on the wrong sort of thing")
+  | Catch (t1, t2) ->
+    (try eval_casetree values k t1 with Not_found ->
+       eval_casetree values k t2)
+  | Seq (t1, t2) ->
+    eval_casetree values (fun _ -> eval_casetree values k t2) t1
+  | Switch _ | StrSwitch _ ->
+    failwith "internal: paths too deep"
+
 let rec eval_name (table : store) nm =
   match Hashtbl.find table nm with
   | exception Not_found ->
@@ -317,35 +344,13 @@ and eval table = function
       (Lwt_result.map_p (eval table) cols)
       (fun values ->
          let values = Array.of_list values in
-         match eval_casetree values tree with
+         match eval_casetree values (fun i -> i) tree with
          | exception Failure msg ->
            Lwt.fail_with msg
-         | case_index ->
+         | None ->
+           Lwt.fail_with "internal: case tree didn't yield a value"
+         | Some case_index ->
            eval table (List.nth cases case_index))
-
-and eval_casetree values = function
-  | Execute case_index ->
-    case_index
-  | Fail ->
-    raise Not_found
-  | Switch (i, clauses, next) ->
-    (match values.(i) with
-     | Symbol cnm ->
-       (try
-          eval_casetree values (List.assoc cnm clauses)
-        with Not_found ->
-          eval_casetree values next)
-     | _ ->
-       invalid_arg "Matching on the wrong sort of thing")
-  | StrSwitch (i, clauses, next) ->
-    (match values.(i) with
-     | String cnm ->
-       (try
-          eval_casetree values (List.assoc cnm clauses)
-        with Not_found ->
-          eval_casetree values next)
-     | _ ->
-       invalid_arg "Matching on the wrong sort of thing")
 
 let eval args program =
   let table = Hashtbl.create 100 in

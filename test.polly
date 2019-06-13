@@ -15,10 +15,10 @@ define request-result1 : json as
 
 define title1 : string as
   // table
-     get-string (get-field request-result1 "title")
+//     get-string (get-field request-result1 "title")
   // | #success as x -> x
   // | #error        ->
-  // "title1"
+   "title1"
 //  end
 
 define userId1 : integer as
@@ -47,7 +47,7 @@ define decision : decision as
 define decision-as-string : string as
   table
     decision, title1
-  | _,        ("foop" | "title1") -> "NAARGLE"
+  | _,        ("title1" | "foop") -> "NAARGLE"
   | Permit,   _                   -> "PERMIT"
   | _,        _                   -> "DENY"
   end
