@@ -246,7 +246,7 @@ let rec eval_casetree values k = function
     raise Not_found
   | Unit ->
     k None
-  | Switch ([i], clauses) ->
+  | ConSwitch ([i], clauses) ->
     (match values.(i) with
      | Symbol cnm ->
        eval_casetree values k (List.assoc cnm clauses)
@@ -269,7 +269,7 @@ let rec eval_casetree values k = function
        eval_casetree values k t2)
   | Seq (t1, t2) ->
     eval_casetree values (fun _ -> eval_casetree values k t2) t1
-  | Switch _ | StrSwitch _ | IntSwitch _ ->
+  | ConSwitch _ | StrSwitch _ | IntSwitch _ ->
     failwith "internal: paths too deep"
 
 let rec eval_name (table : store) nm =

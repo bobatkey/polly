@@ -72,7 +72,7 @@ module type CHECKER = sig
 
   type case_tree =
     | Execute   of int
-    | Switch    of path * (string * case_tree) list
+    | ConSwitch of path * (constructor_symbol * case_tree) list
     | StrSwitch of path * (string * case_tree) list
     | IntSwitch of path * (int * case_tree) list
     | Catch     of case_tree * case_tree
@@ -83,8 +83,8 @@ module type CHECKER = sig
   type expr =
     | E_string of string
     | E_int    of int
-    | E_name   of string
-    | E_cons   of string
+    | E_name   of identifier
+    | E_cons   of constructor_symbol
     | E_func   of L.function_symbol * argument list
     | E_table  of { cols  : expr list
                   ; tree  : case_tree
@@ -118,7 +118,7 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
 
   type case_tree =
     | Execute   of int
-    | Switch    of path * (string * case_tree) list
+    | ConSwitch of path * (constructor_symbol * case_tree) list
     | StrSwitch of path * (string * case_tree) list
     | IntSwitch of path * (int * case_tree) list
     | Catch     of case_tree * case_tree
@@ -129,8 +129,8 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
   type expr =
     | E_string of string
     | E_int    of int
-    | E_name   of string
-    | E_cons   of string
+    | E_name   of identifier
+    | E_cons   of constructor_symbol
     | E_func   of L.function_symbol * argument list
     | E_table  of { cols : expr list; tree : case_tree; cases : expr list }
 
@@ -372,7 +372,7 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
         | `Shift patterns ->
           compile_patterns paths patterns
         | `ConsSwitch clauses ->
-          Switch (List.rev path, compile_clauses clauses)
+          ConSwitch (List.rev path, compile_clauses clauses)
         | `StrSwitch clauses ->
           StrSwitch (List.rev path, compile_clauses clauses)
         | `IntSwitch clauses ->
