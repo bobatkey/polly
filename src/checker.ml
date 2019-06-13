@@ -362,9 +362,6 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
         (chunk patterns)
         Fail
 
-  let compile_patterns patterns =
-    compile_patterns [[]] patterns
-
   let rec check env expected = function
     | Ast.{ data = E_cons cnm; loc } ->
       (match expected with
@@ -378,7 +375,12 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
       R.traverse (synthesise env) cols
       >>= fun col_infos ->
       let cols, col_sorts = List.split col_infos in
-      let pat_sort = Tup (List.map (fun x -> Sin x) col_sorts) in
+      let pat_sort =
+        match col_sorts with
+        | []  -> failwith "internal: empty columns in match"
+        | [s] -> Sin s
+        | ss  -> Tup (List.map (fun x -> Sin x) ss)
+      in
       (* FIXME: coverage checking *)
       R.traverse (check_clause env pat_sort expected) rows
       >>= fun rows ->
@@ -387,7 +389,8 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
         |> List.mapi (fun i (pattern, expr) -> (([pattern], Some i), expr))
         |> List.split
       in
-      let tree = compile_patterns patterns in
+      let paths = match col_sorts with [_] -> [[0]] | _ -> [[]] in
+      let tree  = compile_patterns paths patterns in
       Ok (E_table { cols; tree; cases })
     | expr ->
       synthesise env expr
