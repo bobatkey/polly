@@ -57,7 +57,10 @@ define decision-as-string : string as
 
 define main : json as
   object { field "title1"  (json-string title1)
-         , field "userId1" (json-number userId1)
+         , field "userId1" (table userId1
+                                | 23 -> json-string "5"
+                                | _  -> json-number userId1
+                            end)
          , field "title2"  (json-string title2)
          , field "userId2" (json-number userId2)
          , field "decision" (json-string decision-as-string)

@@ -74,6 +74,7 @@ module type CHECKER = sig
     | Execute   of int
     | Switch    of path * (string * case_tree) list
     | StrSwitch of path * (string * case_tree) list
+    | IntSwitch of path * (int * case_tree) list
     | Catch     of case_tree * case_tree
     | Seq       of case_tree * case_tree
     | Unit
@@ -119,6 +120,7 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
     | Execute   of int
     | Switch    of path * (string * case_tree) list
     | StrSwitch of path * (string * case_tree) list
+    | IntSwitch of path * (int * case_tree) list
     | Catch     of case_tree * case_tree
     | Seq       of case_tree * case_tree
     | Unit
@@ -179,6 +181,7 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
   type pat =
     | P_cons  of constructor_symbol
     | P_str   of string
+    | P_int   of int
     | P_any
     | P_or    of pat list
     | P_tuple of pat list
@@ -202,6 +205,9 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
     | Ast.{ data = P_string str; loc = _ }, Sin (AbstrSort sort)
       when L.Base_Sort.equal sort L.string_sort ->
       Ok (P_str str)
+    | Ast.{ data = P_int i; loc = _ }, Sin (AbstrSort sort)
+      when L.Base_Sort.equal sort L.integer_sort ->
+      Ok (P_int i)
     | Ast.{ data = P_seq pats; loc }, Tup sorts ->
       (match combine_opt pats sorts with
        | None ->
@@ -234,8 +240,9 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
       tabulate 0 (List.length sorts) sorts
       >>= fun ps ->
       Ok (P_or ps)
-    | Ast.{ data = P_cons _ | P_string _ ; loc }, sort
-    | Ast.{ data = P_seq _ | P_anywhere _; loc }, sort ->
+    | Ast.{ data = (P_cons _ | P_string _ | P_int _
+                   | P_seq _ | P_anywhere _)
+          ; loc }, sort ->
       R.errorf "Pattern ill-typed for sort %a at %a"
         pp_pat_sort sort
         Location.pp loc
@@ -252,6 +259,16 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
 
   module StringLitMap = struct
     include Map.Make (String)
+    let find k m = match find k m with
+      | exception Not_found -> []
+      | l -> l
+    let add k v m =
+      let vs = find k m in
+      add k (v::vs) m
+  end
+
+  module IntLitMap = struct
+    include Map.Make (struct type t = int let compare = compare end)
     let find k m = match find k m with
       | exception Not_found -> []
       | l -> l
@@ -308,6 +325,23 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
           `StrSwitch clauses::chunk patterns
       in
       gather StringLitMap.empty patterns
+    | ((P_int _)::_, _)::_ as patterns ->
+      let rec gather accum = function
+        | ([], _)::_ ->
+          invalid_arg "internal: empty pattern3"
+        | (P_int c::pats, i)::patterns ->
+          gather (IntLitMap.add c (pats, i) accum) patterns
+        | ([] | (_::_, _)::_) as patterns ->
+          let clauses =
+            IntLitMap.fold
+              (fun str patterns ->
+                 List.cons (str, List.rev patterns))
+              accum
+              []
+          in
+          `IntSwitch clauses::chunk patterns
+      in
+      gather IntLitMap.empty patterns
     | ((P_tuple ps)::_, _)::_ as patterns ->
       let width = List.length ps in
       let rec gather accum = function
@@ -329,23 +363,20 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
     | [], ([], None)::_   -> Unit
     | [], _               -> invalid_arg "missing pattern"
     | path::paths, patterns ->
+      let compile_clauses clauses =
+        List.map
+          (fun (key,patterns) -> key, compile_patterns paths patterns)
+          clauses
+      in
       let compile_chunk = function
         | `Shift patterns ->
           compile_patterns paths patterns
         | `ConsSwitch clauses ->
-          let clauses =
-            List.map
-              (fun (cnm,patterns) -> cnm, compile_patterns paths patterns)
-              clauses
-          in
-          Switch (List.rev path, clauses)
+          Switch (List.rev path, compile_clauses clauses)
         | `StrSwitch clauses ->
-          let clauses =
-            List.map
-              (fun (str,patterns) -> str, compile_patterns paths patterns)
-              clauses
-          in
-          StrSwitch (List.rev path, clauses)
+          StrSwitch (List.rev path, compile_clauses clauses)
+        | `IntSwitch clauses ->
+          IntSwitch (List.rev path, compile_clauses clauses)
         | `Tuple (width, patterns) ->
           let paths = List.init width (fun i -> i::path) @ paths in
           compile_patterns paths patterns

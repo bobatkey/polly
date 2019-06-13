@@ -26,6 +26,7 @@ type pattern_data =
   | P_seq      of pattern list
   | P_or       of pattern list
   | P_string   of string
+  | P_int      of int
   | P_anywhere of pattern
 
 and pattern =

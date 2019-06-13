@@ -258,12 +258,18 @@ let rec eval_casetree values k = function
        eval_casetree values k (List.assoc cnm clauses)
      | _ ->
        invalid_arg "Matching on the wrong sort of thing")
+  | IntSwitch ([i], clauses) ->
+    (match values.(i) with
+     | Integer c ->
+       eval_casetree values k (List.assoc c clauses)
+     | _ ->
+       invalid_arg "Matching on the wrong sort of thing")
   | Catch (t1, t2) ->
     (try eval_casetree values k t1 with Not_found ->
        eval_casetree values k t2)
   | Seq (t1, t2) ->
     eval_casetree values (fun _ -> eval_casetree values k t2) t1
-  | Switch _ | StrSwitch _ ->
+  | Switch _ | StrSwitch _ | IntSwitch _ ->
     failwith "internal: paths too deep"
 
 let rec eval_name (table : store) nm =

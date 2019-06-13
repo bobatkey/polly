@@ -111,6 +111,8 @@ pattern0:
     { { data = P_cons ident; loc = Location.mk $startpos $endpos } }
   | str=STRINGLIT
     { { data = P_string str; loc = Location.mk $startpos $endpos } }
+  | i=INTLIT
+    { { data = P_int i; loc = Location.mk $startpos $endpos } }
   | UNDERSCORE
     { { data = P_any; loc = Location.mk $startpos $endpos } }
   | LPAREN; pat=pattern; RPAREN
