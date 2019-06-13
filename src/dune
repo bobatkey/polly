@@ -1,6 +1,6 @@
 (executable
  (name       main)
- (libraries  lwt cohttp-lwt-unix cohttp cohttp-lwt yojson ptime ptime.clock.os)
+ (libraries  lwt cohttp-lwt-unix cohttp cohttp-lwt yojson ptime ptime.clock.os fmt)
  (public_name polly))
 
 (menhir

@@ -14,6 +14,7 @@ open Ast
 
 %token KW_EXTERN KW_DEFINE KW_AS
 %token KW_TABLE KW_END
+%token KW_ANY
 %token KW_IS KW_SORT
 
 
@@ -104,6 +105,8 @@ pattern1:
     { pat }
 
 pattern0:
+  | KW_ANY; p=pattern0
+    { { data = P_anywhere p; loc = Location.mk $startpos $endpos } }
   | ident=UC_IDENT
     { { data = P_cons ident; loc = Location.mk $startpos $endpos } }
   | str=STRINGLIT

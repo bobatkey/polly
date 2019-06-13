@@ -21,11 +21,12 @@ type function_symbol =
 
 
 type pattern_data =
-  | P_cons   of constructor_symbol
+  | P_cons     of constructor_symbol
   | P_any
-  | P_seq    of pattern list
-  | P_or     of pattern list
-  | P_string of string
+  | P_seq      of pattern list
+  | P_or       of pattern list
+  | P_string   of string
+  | P_anywhere of pattern
 
 and pattern =
   pattern_data with_location

@@ -36,20 +36,23 @@ define userId2 : integer as
   //get-integer (get-field request-result2 "userId")
   5
 
-define decision : decision as
+define decision1 : decision as
   table
     eq-string? title1 title2, title1
   | True,                     _
-  | _,                        "title1" -> Permit
+  | _,                        "title1" -> NotApplicable
   | False,                    _        -> Deny
   end
 
+define decision2 : decision as
+  NotApplicable
+
 define decision-as-string : string as
   table
-    decision, title1
-  | _,        ("title1" | "foop") -> "NAARGLE"
-  | Permit,   _                   -> "PERMIT"
-  | _,        _                   -> "DENY"
+    decision1, decision2
+  | any Permit           -> "PERMIT"
+  | any Deny             -> "DENY"
+  | _                    -> "NAARGLE"
   end
 
 define main : json as

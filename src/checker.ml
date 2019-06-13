@@ -143,11 +143,6 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
 
   open R.Infix
 
-  let append_all xss yss =
-    xss
-    |> List.map (fun xs -> yss |> List.map (fun ys -> xs @ ys))
-    |> List.concat
-
   let compare_types loc expected computed =
     match expected, computed with
     | AbstrSort s1, AbstrSort s2 ->
@@ -172,6 +167,14 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
   type pat_type =
     | Tup of pat_type list
     | Sin of sort
+
+  let rec pp_pat_sort fmt = function
+    | Tup l ->
+      Fmt.(list ~sep:(always " * ") pp_pat_sort) fmt l
+    | Sin (EnumSort constrs) ->
+      Fmt.(parens (iter ~sep:(always " | ") ConstrSet.iter string)) fmt constrs
+    | Sin (AbstrSort s) ->
+      L.Base_Sort.pp fmt s
 
   type pat =
     | P_cons  of constructor_symbol
@@ -211,9 +214,30 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
       R.traverse (fun p -> check_pattern p sort) pats
       >>= fun pats ->
       Ok (P_or pats)
-    | Ast.{ data = P_cons _ | P_string _ ; loc }, _
-    | Ast.{ data = P_seq _; loc }, Sin _ ->
-      R.errorf "Pattern ill-typed at %a"
+    | Ast.{ data = P_anywhere p; loc = _ }, Tup sorts ->
+      let rec tabulate before after = function
+        | [] ->
+          Ok []
+        | sort::sorts ->
+          check_pattern p sort
+          >>= fun p ->
+          let p =
+            P_tuple
+              (List.init before (fun _ -> P_any)
+               @ [p]
+               @ List.init after (fun _ -> P_any))
+          in
+          tabulate (before+1) (after-1) sorts
+          >>= fun ps ->
+          Ok (p::ps)
+      in
+      tabulate 0 (List.length sorts) sorts
+      >>= fun ps ->
+      Ok (P_or ps)
+    | Ast.{ data = P_cons _ | P_string _ ; loc }, sort
+    | Ast.{ data = P_seq _ | P_anywhere _; loc }, sort ->
+      R.errorf "Pattern ill-typed for sort %a at %a"
+        pp_pat_sort sort
         Location.pp loc
 
   module ConstrMap = struct

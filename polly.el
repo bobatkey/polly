@@ -1,7 +1,7 @@
 ;; based on: http://ergoemacs.org/emacs/elisp_syntax_coloring.html
 
 ;; define several class of keywords
-(setq polly-keywords  '("define" "as" "external" "table" "end" "sort" "is"))
+(setq polly-keywords  '("define" "as" "external" "table" "end" "sort" "is" "any"))
 ; (setq polly-equality  '("coerce" "refl" "subst"))
 ; (setq polly-operators '("->" "=" "/"))
 (setq polly-types     '("string" "integer" "json" "json-field"))
