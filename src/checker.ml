@@ -164,13 +164,13 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
         "Sort mismatch at %a"
         Location.pp loc
 
-  type pat_type =
-    | Tup of pat_type list
+  type pat_sort =
+    | Tup of pat_sort list
     | Sin of sort
 
   let rec pp_pat_sort fmt = function
     | Tup l ->
-      Fmt.(list ~sep:(always " * ") pp_pat_sort) fmt l
+      Fmt.(parens (list ~sep:(always " * ") pp_pat_sort)) fmt l
     | Sin (EnumSort constrs) ->
       Fmt.(parens (iter ~sep:(always " | ") ConstrSet.iter string)) fmt constrs
     | Sin (AbstrSort s) ->
@@ -189,7 +189,7 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
       | [],    []     -> Some (List.rev acc)
       | x::xs, y::ys  -> combine ((x,y)::acc) xs ys
       | [], _ | _, [] -> None
-    in
+     in
     combine [] xs ys
 
   let rec check_pattern pattern sort =
@@ -364,27 +364,6 @@ module Make (L : LANGUAGE) : CHECKER with module L = L = struct
 
   let compile_patterns patterns =
     compile_patterns [[]] patterns
-
-  (* Augustsson-style coverage checking
-     - Phrased as a problem    x covering {p1, p2, ...}
-     - Has Conor muddled this up with Coquand's pattern matching for dependent
-       types?
-     - Seems similar to Maranget's thing too, but his has a way of not necessarily
-       expanding each wildcard test case, and allows starting with an arbitrary
-       pattern on the LHS.
-
-        x  covering { (_, true), (true, false) }
-    =>  (x,y) covering { (_, true), (true, false) }
-        [ SPLIT ON y ]
-    =>  (x,true) covering { (_, true) }  [DONE]
-        (x,false) covering { (true, false) }
-        [ SPLIT ON x ] (violates left-to-right evaluation!?)
-    =>  (true,false) covering { (true, false) } [ DONE ]
-        (false,false) covering { }  [ FAILED ]
-
-    This enables exhaustivity checking by checking to see whether we ever end up
-    with an example of a term that cannot be matched. *)
-
 
   let rec check env expected = function
     | Ast.{ data = E_cons cnm; loc } ->
