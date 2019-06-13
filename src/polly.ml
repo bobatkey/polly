@@ -79,36 +79,30 @@ module Language = struct
   let json_field =
     Checker.(AbstrSort JsonField)
 
-  let function_scheme constructor =
+  let function_scheme =
     let open Checker.Sorts in
-    match constructor with
-    | Concat ->
-      string @*-> return string
-    | GetField ->
-      json @--> string @--> return json
-    | GetString ->
-      json @--> return string
-    | GetInteger ->
-      json @--> return integer
+    function
+    (* String constructor *)
+    | Concat -> string @*-> return string
 
-    | JsonObject ->
-      json_field @*-> return json
-    | JsonField ->
-      string @--> json @--> return json_field
-    | JsonString ->
-      string @--> return json
-    | JsonNumber ->
-      integer @--> return json
+    (* JSON destructors *)
+    | GetField   -> json @--> string @--> return json
+    | GetString  -> json @--> return string
+    | GetInteger -> json @--> return integer
 
-    | Is_equal_String ->
-      string @--> string @--> return boolean
-    | Is_equal_Integer ->
-      integer @--> integer @--> return boolean
+    (* JSON constructors *)
+    | JsonObject -> json_field @*-> return json
+    | JsonField  -> string @--> json @--> return json_field
+    | JsonString -> string @--> return json
+    | JsonNumber -> integer @--> return json
+    | Parse_json -> string @--> return json
 
-    | Parse_json ->
-      string @--> return json
-    | Http_get ->
-      string @--> return string
+    (* Relations / boolean constructors *)
+    | Is_equal_String  -> string @--> string @--> return boolean
+    | Is_equal_Integer -> integer @--> integer @--> return boolean
+
+    (* External services *)
+    | Http_get -> string @--> return string
 end
 
 module Checker = Checker.Make (Language)
