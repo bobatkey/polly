@@ -67,10 +67,16 @@ module type CHECKER = sig
   type identifier =
     string
 
+  type path =
+    int list
+
   type case_tree =
     | Execute   of int
-    | Switch    of int * (string * case_tree) list * case_tree
-    | StrSwitch of int * (string * case_tree) list * case_tree
+    | Switch    of path * (string * case_tree) list
+    | StrSwitch of path * (string * case_tree) list
+    | Catch     of case_tree * case_tree
+    | Seq       of case_tree * case_tree
+    | Unit
     | Fail
 
   type expr =
@@ -79,7 +85,9 @@ module type CHECKER = sig
     | E_name   of string
     | E_cons   of string
     | E_func   of L.function_symbol * argument list
-    | E_table  of { cols : expr list; tree : case_tree; cases : expr list }
+    | E_table  of { cols  : expr list
+                  ; tree  : case_tree
+                  ; cases : expr list }
 
   and argument =
     | A_one  of expr
@@ -93,7 +101,7 @@ module type CHECKER = sig
   val check_program : Ast.program -> sort -> (program, string) result
 end
 
-module Make (L : LANGUAGE) (* : CHECKER with module L = L*)  = struct
+module Make (L : LANGUAGE) : CHECKER with module L = L = struct
   module L = L
 
   type base_sort = L.base_sort
